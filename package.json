@@ -1,0 +1,12 @@
+{
+  "name": "elfsquad-qfs-sam-app",
+  "version": "1.0.0",
+  "description": "AWS SAM app for Elfsquad & DynaMaker QFS integration",
+  "main": "src/webhook.js",
+  "scripts": {
+    "test": "echo \"No tests yet\""
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}

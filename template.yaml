@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Elfsquad & DynaMaker QFS integration (Node.js)
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: nodejs20.x
+Resources:
+  ElfsquadWebhook:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/webhook.handler
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /webhook
+            Method: POST
+      Environment:
+        Variables:
+          ELFSQUAD_API_KEY: ""
+          QFS_API_KEY: ""
+          CONFIG_MODEL_ID: ""
+          APPLICATION_ID: ""
+          QFS_TASK: "generate-pdf"
+          QFS_ENVIRONMENT: "test"
+  QFSCallback:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/callback.handler
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /callback
+            Method: POST
+      Environment:
+        Variables:
+          ELFSQUAD_API_KEY: ""
