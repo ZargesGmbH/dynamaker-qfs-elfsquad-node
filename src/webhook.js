@@ -1,4 +1,6 @@
+
 const axios = require('axios');
+const qs = require('querystring');
 
 exports.handler = async (event) => {
   // Parse webhook payload
@@ -6,10 +8,29 @@ exports.handler = async (event) => {
   const configurationId = body?.content?.configurationId;
   const quotationId = body?.content?.quotationId;
 
-  // Fetch configuration details from Elfsquad
-  const configRes = await axios.get(`https://api.elfsquad.io/configurator/1/configurator/open?configurationId=${configurationId}`, {
-    headers: { 'Authorization': `Bearer ${process.env.ELFSQUAD_API_KEY}` }
-  });
+
+  // Get Elfsquad access token using OpenID client credentials
+  const tokenRes = await axios.post(
+    process.env.ELFSQUAD_LOGIN_ENDPOINT,
+    qs.stringify({
+      grant_type: process.env.ELFSQUAD_GRANT_TYPE,
+      client_id: process.env.ELFSQUAD_CLIENT_ID,
+      client_secret: process.env.ELFSQUAD_CLIENT_SECRET,
+      scope: process.env.ELFSQUAD_SCOPE,
+    }),
+    {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    }
+  );
+  const accessToken = tokenRes.data.access_token;
+
+  // Fetch configuration details from Elfsquad using the access token
+  const configRes = await axios.get(
+    `${process.env.ELFSQUAD_BASE_URL}/configurator/1/configurator/open?configurationId=${configurationId}`,
+    {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    }
+  );
   const configuration = configRes.data;
 
   // Check configuration model ID
