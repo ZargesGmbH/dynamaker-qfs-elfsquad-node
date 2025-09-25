@@ -1,0 +1,20 @@
+version = 0.1
+
+[default]
+[default.global.parameters]
+#profile = "___OPTIONAL_AWS_PROFILE___"
+stack_name = "___STACK_NAME___"
+region = "___AWS_REGION___"
+
+[default.local_invoke.parameters]
+skip_pull_image = true
+
+[default.build.parameters]
+cached = true
+parallel = true
+use_container = true
+
+[default.deploy.parameters]
+confirm_changeset = true
+resolve_s3 = true
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"

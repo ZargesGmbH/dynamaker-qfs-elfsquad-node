@@ -32,3 +32,11 @@ coverage/
 
 # Others
 LICENSE
+
+# Test event files
+events/*
+!events/callback.sample.json
+!events/trigger.sample.json
+
+# SAM config file
+samconfig.toml

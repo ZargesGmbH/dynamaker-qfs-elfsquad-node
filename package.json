@@ -1,12 +1,10 @@
 {
-  "name": "elfsquad-qfs-sam-app",
-  "version": "1.0.0",
-  "description": "AWS SAM app for Elfsquad & DynaMaker QFS integration",
-  "main": "src/webhook.js",
+  "name": "dynamaker-qfs-elfsquad-integration",
+  "version": "0.1.0",
+  "description": "AWS SAM app for DynaMaker QFS and Elfsquad integration",
   "scripts": {
-    "test": "echo \"No tests yet\""
-  },
-  "dependencies": {
-    "axios": "^1.6.0"
+    "invoke-local-trigger": "sam local invoke QFSTaskTrigger --event events/trigger.json --parameter-overrides $(grep -v '^#' .env | xargs)",
+    "invoke-local-callback": "sam local invoke QFSCallback --event events/callback.json --parameter-overrides $(grep -v '^#' .env | xargs)",
+    "deploy": "sam deploy --parameter-overrides $(grep -v '^#' .env | xargs)"
   }
 }

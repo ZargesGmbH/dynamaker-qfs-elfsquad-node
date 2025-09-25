@@ -18,6 +18,9 @@ This project replicates the Power Automate flow for Elfsquad and DynaMaker QFS i
 ## Environment Variables
 See `.env.example` for required variables.
 
+## Deployment
+`npm run deploy` (will execute `sam deploy --parameter-overrides $(grep -v '^#' .env | xargs)`)
+
 ## Endpoints
 - `POST /webhook`: Receives Elfsquad events
 - `POST /callback`: Receives QFS job results
