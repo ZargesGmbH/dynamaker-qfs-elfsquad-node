@@ -6,6 +6,7 @@ yarn-error.log*
 
 # dotenv environment variables
 .env
+.env.production
 
 # Logs
 logs/
@@ -32,3 +33,11 @@ coverage/
 
 # Others
 LICENSE
+
+# Test event files
+events/*
+!events/callback.sample.json
+!events/trigger.sample.json
+
+# SAM config file
+samconfig.toml

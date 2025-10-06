@@ -1,39 +1,74 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Elfsquad & DynaMaker QFS integration (Node.js)
+Description: DynaMaker QFS and Elfsquad integration (Node.js)
+
+Parameters:
+  ElfsquadClientId:
+    Type: String
+  ElfsquadClientSecret:
+    Type: String
+  ElfsquadConfiguratorModelId:
+    Type: String
+  DynamakerApplicationId:
+    Type: String
+  QfsApiKey:
+    Type: String
+  QfsEnvironment:
+    Type: String
+
 Globals:
   Function:
-    Timeout: 30
+    Timeout: 10
     Runtime: nodejs20.x
+
 Resources:
-  ElfsquadWebhook:
+  QFSTaskTrigger:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: src/webhook.handler
-      Events:
-        Api:
-          Type: Api
-          Properties:
-            Path: /webhook
-            Method: POST
+      CodeUri: ./src
+      Handler: qfs-task-trigger.handler
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowMethods:
+            - PATCH
+          AllowOrigins:
+            - 'https://ems.elfsquad.io'
       Environment:
         Variables:
-          ELFSQUAD_API_KEY: ""
-          QFS_API_KEY: ""
-          CONFIG_MODEL_ID: ""
-          APPLICATION_ID: ""
-          QFS_TASK: "generate-pdf"
-          QFS_ENVIRONMENT: "test"
+          DynamakerApplicationId: !Ref DynamakerApplicationId
+          ElfsquadClientId: !Ref ElfsquadClientId
+          ElfsquadClientSecret: !Ref ElfsquadClientSecret
+          ElfsquadConfiguratorModelId: !Ref ElfsquadConfiguratorModelId
+          QfsApiKey: !Ref QfsApiKey
+          QfsCallbackFunctionUrl: !GetAtt QFSCallbackFunctionUrl.FunctionUrl
+          QfsEnvironment: !Ref QfsEnvironment
+
   QFSCallback:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: src/callback.handler
-      Events:
-        Api:
-          Type: Api
-          Properties:
-            Path: /callback
-            Method: POST
+      CodeUri: ./src
+      Handler: qfs-callback.handler
       Environment:
         Variables:
-          ELFSQUAD_API_KEY: ""
+          ElfsquadClientId: !Ref ElfsquadClientId
+          ElfsquadClientSecret: !Ref ElfsquadClientSecret
+
+  QFSCallbackFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !GetAtt QFSCallback.Arn
+
+  QFSCallbackFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref QFSCallback
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+Outputs:
+  QFSCallbackFunctionEndpoint:
+    Description: "Function URL endpoint for QFSCallback"
+    Value: !GetAtt QFSCallbackFunctionUrl.FunctionUrl
