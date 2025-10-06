@@ -1,4 +1,4 @@
-const triggerDynamakerJobLambdaURL = "___ENTER_AWS_LAMBDA_URL_OF_QFSTaskTrigger_FUNCTION___";
+const triggerDynamakerJobLambdaURL = "___ENTER_AWS_LAMBDA_URL_OF_QFSTaskTrigger_FUNCTION___"; //  example: "https://abcde12345.execute-api.eu-central-1.amazonaws.com/Prod/qfs-task-trigger"
 
 const closeDialogAfter = 10; // seconds
 let closeDialogCountdownCounter = 0;

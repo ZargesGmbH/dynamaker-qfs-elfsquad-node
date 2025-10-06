@@ -3,7 +3,7 @@ import { getElfsquadToken } from "./services/elfsquadService.js";
 
 const ELFSQUAD_API_BASE_URL = "https://api.elfsquad.io";
 const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
-const QFS_TASK_NAME = "generate-pdf";
+const QFS_TASK_NAME = process.env.QfsTaskName || "generate-pdf";
 
 export const handler = async (event) => {
   // Parse webhook payload

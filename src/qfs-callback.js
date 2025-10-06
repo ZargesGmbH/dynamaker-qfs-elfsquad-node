@@ -10,14 +10,20 @@ export const handler = async (event) => {
 
   if (queryParams?.success === 'false') {
     console.error('QFS job failed:', queryParams.message);
-    return;
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ message: 'QFS job failed', details: queryParams.message })
+    };
   }
 
   const configurationId = queryParams?.cid;
   const quotationId = queryParams?.qid;
   if (!configurationId || !quotationId) {
     console.error('Missing configurationId and/or quotationId in query parameters.');
-    return;
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ message: 'Missing configurationId and/or quotationId in query parameters.' })
+    };
   }
 
   const accessToken = await getElfsquadToken();
@@ -30,7 +36,10 @@ export const handler = async (event) => {
 
   if (!configuration.data) {
     console.error('Configuration not found for ID:', configurationId);
-    return;
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ message: 'Configuration not found', configurationId })
+    };
   }
 
   // Save callback body as PDF file
@@ -57,7 +66,15 @@ export const handler = async (event) => {
       }
     );
     console.log('Upload successful. Response:', response.data);
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ message: 'Upload successful', response: response.data })
+    };
   } catch (error) {
     console.error('Upload failed:', error);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ message: 'Upload failed', error: error?.message || error })
+    };
   }
 }
