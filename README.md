@@ -11,7 +11,7 @@ This Node.js and AWS SAM-based project provides an integration between Elfsquad 
 
 ## Setup
 
-To enable this integration, deploy the Serverless Application Model (SAM) application to AWS. 
+To enable this integration, deploy the Serverless Application Model (SAM) application to AWS.
 
 1. Copy `.env.example` to `.env.production` and fill in your credentials.
 2. Run `npm install --prefix ./src` to install project dependencies.
@@ -29,21 +29,20 @@ To enable this integration, deploy the Serverless Application Model (SAM) applic
     - In Integrations > Scripts, create another script.
     - Use the contents of `elfsquad-ui-scripts/dialog.js` for this script.
     - This script makes the actual AJAX calls to the exposed HTTP endpoint (Lambda function) to trigger a DynaMaker job.
-    - After deployment, update the  constant `triggerDynamakerJobLambdaURL` in this script to use your actual AWS Lambda endpoint URL.
+    - After deployment, update the constant `triggerDynamakerJobLambdaURL` in this script to use your actual AWS Lambda endpoint URL (it will be printed out in the terminal after deployment).
 
 
 ## Environment Variables
 Configure all required variables in your `.env.production` file. Refer to `.env.example` for details and example values.
 
 ## Deployment
-Deploy the application using:
-```bash
-npm run deploy (will execute sam deploy --parameter-overrides $(grep -v '^#' .env | xargs)
-```
+Deploy the application using `npm run deploy`.
+
 This command executes `sam deploy` with parameters from your `.env.production` file.
 
 ## Local Lambda Function Testing
-To test locally:
+To test locally, first copy `.env.example` to `.env.local` and fill in your credentials.
+
 - For the `qfs-task-trigger` handler:
     1. Copy `events/trigger.sample.json` to `events/trigger.json`.
     2. Populate `events/trigger.json` with real data.
@@ -54,7 +53,7 @@ To test locally:
     3. Run `npm run invoke-local-callback`.
 
 ## AWS Lambda Endpoints
-- **QFS Task Trigger**: Receives Elfsquad events with quotation and configuration IDs to trigger a DynaMaker job.
+- **QFS Task Trigger**: Receives Elfsquad events with quotation and configuration IDs to trigger the specified DynaMaker job. The actual Lambda URL will be printed out in the terminal once you deploy the application to the cloud. This is the URL you need to copy into the second Elfsquad script (see the `Elfsquad setup` section above).
     - Example: `https://abcde12345.execute-api.eu-central-1.amazonaws.com/Prod/qfs-task-trigger`
 - **QFS Callback**: Receives QFS job results and uploads the generated PDF documents to the Elfsquad quotation.
     - Example: `https://abcde12345.execute-api.eu-central-1.amazonaws.com/Prod/qfs-callback`
