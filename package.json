@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "description": "AWS SAM app for DynaMaker QFS and Elfsquad integration",
   "scripts": {
-    "invoke-local-trigger": "sam local invoke QFSTaskTrigger --event events/trigger.json --parameter-overrides $(grep -v '^#' .env | xargs)",
-    "invoke-local-callback": "sam local invoke QFSCallback --event events/callback.json --parameter-overrides $(grep -v '^#' .env | xargs)",
-    "deploy": "sam deploy --parameter-overrides $(grep -v '^#' .env | xargs)"
+    "invoke-local-trigger": "sam local invoke QFSTaskTrigger --event events/trigger.json --parameter-overrides $(grep -v '^#' .env.production | xargs)",
+    "invoke-local-callback": "sam local invoke QFSCallback --event events/callback.json --parameter-overrides $(grep -v '^#' .env.production | xargs)",
+    "deploy": "sam deploy --parameter-overrides $(grep -v '^#' .env.production | xargs)"
   }
 }

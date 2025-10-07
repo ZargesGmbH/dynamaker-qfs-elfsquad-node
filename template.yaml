@@ -15,6 +15,8 @@ Parameters:
     Type: String
   QfsEnvironment:
     Type: String
+  QfsTaskName:
+    Type: String
 
 Globals:
   Function:
@@ -43,6 +45,7 @@ Resources:
           QfsApiKey: !Ref QfsApiKey
           QfsCallbackFunctionUrl: !GetAtt QFSCallbackFunctionUrl.FunctionUrl
           QfsEnvironment: !Ref QfsEnvironment
+          QfsTaskName: !Ref QfsTaskName
 
   QFSCallback:
     Type: AWS::Serverless::Function
