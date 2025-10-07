@@ -11,7 +11,7 @@ This Node.js and AWS SAM-based project provides an integration between Elfsquad 
 
 ## Setup
 
-To enable this integration, deploy the Serverless Application Model (SAM) application to AWS. Note that the integration requires the deployed URLs of your Lambda functions to be set in the environment variables. As a result, an initial deployment is needed to obtain these URLs, followed by a second deployment after updating the environment variables with the correct endpoints.
+To enable this integration, deploy the Serverless Application Model (SAM) application to AWS. 
 
 1. Copy `.env.example` to `.env.production` and fill in your credentials.
 2. Run `npm install --prefix ./src` to install project dependencies.
