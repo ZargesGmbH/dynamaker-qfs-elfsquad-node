@@ -29,13 +29,6 @@ Resources:
     Properties:
       CodeUri: ./src
       Handler: qfs-task-trigger.handler
-      FunctionUrlConfig:
-        AuthType: NONE
-        Cors:
-          AllowMethods:
-            - PATCH
-          AllowOrigins:
-            - 'https://ems.elfsquad.io'
       Environment:
         Variables:
           DynamakerApplicationId: !Ref DynamakerApplicationId
@@ -46,6 +39,25 @@ Resources:
           QfsCallbackFunctionUrl: !GetAtt QFSCallbackFunctionUrl.FunctionUrl
           QfsEnvironment: !Ref QfsEnvironment
           QfsTaskName: !Ref QfsTaskName
+
+  QFSTaskTriggerFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !GetAtt QFSTaskTrigger.Arn
+      Cors:
+        AllowMethods:
+          - PATCH
+        AllowOrigins:
+          - 'https://ems.elfsquad.io'
+
+  QFSTaskTriggerFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref QFSTaskTrigger
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
 
   QFSCallback:
     Type: AWS::Serverless::Function
@@ -72,6 +84,6 @@ Resources:
       FunctionUrlAuthType: NONE
 
 Outputs:
-  QFSCallbackFunctionEndpoint:
-    Description: "Function URL endpoint for QFSCallback"
-    Value: !GetAtt QFSCallbackFunctionUrl.FunctionUrl
+  QFSTaskTriggerFunctionUrl:
+    Description: "Lambda function URL for QFSTaskTrigger"
+    Value: !GetAtt QFSTaskTriggerFunctionUrl.FunctionUrl
