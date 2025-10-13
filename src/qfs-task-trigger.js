@@ -4,12 +4,13 @@ import { getElfsquadToken } from "./services/elfsquadService.js";
 const ELFSQUAD_API_BASE_URL = "https://api.elfsquad.io";
 const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
 const QFS_TASK_NAME = process.env.QfsTaskName || "generate-pdf";
+const ELFSQUAD_WEBHOOK_TOPIC = 'quotation.configurationadded';
 
 export const handler = async (event) => {
   // Parse webhook payload
   const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-  const configurationId = body?.configurationId;
-  const quotationId = body?.quotationId;
+  const quotationId = (body.Topic === ELFSQUAD_WEBHOOK_TOPIC) ? body.Content?.quotationId : body?.quotationId;
+  const configurationId = (body.Topic === ELFSQUAD_WEBHOOK_TOPIC) ? body.Content?.configurationId : body?.configurationId;
 
   if (!quotationId) {
     return {
