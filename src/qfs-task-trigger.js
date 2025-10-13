@@ -9,8 +9,8 @@ const ELFSQUAD_WEBHOOK_TOPIC = 'quotation.configurationadded';
 export const handler = async (event) => {
   // Parse webhook payload
   const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-  const quotationId = (body.Topic == ELFSQUAD_WEBHOOK_TOPIC) ? body.Content?.quotationId : body?.quotationId;
-  const configurationId = (body.Topic == ELFSQUAD_WEBHOOK_TOPIC) ? body.Content?.configurationId : body?.configurationId;
+  const quotationId = (body.Topic === ELFSQUAD_WEBHOOK_TOPIC) ? body.Content?.quotationId : body?.quotationId;
+  const configurationId = (body.Topic === ELFSQUAD_WEBHOOK_TOPIC) ? body.Content?.configurationId : body?.configurationId;
 
   if (!quotationId) {
     return {
