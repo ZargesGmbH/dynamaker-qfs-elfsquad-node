@@ -8,6 +8,8 @@ yarn-error.log*
 .env.local
 .env.production
 
+.env.local.json
+
 # Logs
 logs/
 *.log

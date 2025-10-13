@@ -8,71 +8,46 @@ await runApp();
 async function runApp() {
   createUI();
 
-  updateProgress("Fetching configurations...");
-
-  const uniqueConfigIds = new Set();
-  const configurations = await fetchAll(`data/1/quotationlines?\$filter=quotationId eq ${parameters.quotationId}&\$select=configurationId`);
-  configurations.forEach(item => uniqueConfigIds.add(item.configurationId));
-
   updateProgress("Triggering the generation of configuration drawings...");
 
   await loadScriptAsync("https://unpkg.com/axios@1.12.2/dist/axios.min.js");
   try {
-    const errors = [];
-    for (const configId of uniqueConfigIds) {
-      const response = await axios.patch(
-        triggerDynamakerJobLambdaURL,
-        {
-          quotationId: parameters.quotationId,
-          configurationId: configId,
+    const response = await axios.patch(
+      triggerDynamakerJobLambdaURL,
+      {
+        quotationId: parameters.quotationId,
+      },
+      {
+        headers: {
+          'Content-Type': 'text/plain',
         },
-        {
-          headers: {
-            'Content-Type': 'text/plain',
-          },
-        },
-      );
+      },
+    );
 
-      if (response.status < 200 || response.status >= 300) {
-        errors.push(`Error triggering job for configuration ${configId}: ${response.status} ${response.statusText}`);
-      }
-    }
-
-    if (!errors.length) {
-      updateProgress("PDF generation triggered successfully. Once the files are ready (can take a few minutes), they" +
-         " will be automatically attached to the quotation.");
-      updateCountdown(getCountdownMessage(closeDialogAfter));
-      hideLoader();
-      document.getElementById("button_wrapper").style.display = "flex";
-      setTimeout(countDownToCloseDialog, 1000);
-    } else {
-      throw new Error(errors.join(' '));
-    }
+    updateProgress("PDF generation triggered successfully. Once the files are ready (can take a few minutes), they" +
+      " will be automatically attached to the quotation.");
+    updateCountdown(getCountdownMessage(closeDialogAfter));
+    document.getElementById("button_wrapper").style.display = "flex";
+    setTimeout(countDownToCloseDialog, 1000);
   } catch (error) {
     let errorToDisplay = error.message;
     if (error.response?.data?.message) {
-      errorToDisplay += ' ("' + error.response.data.message + '")';
+      errorToDisplay += ' (' + error.response.data.message
+      if (error.response?.data?.errors) {
+        errorToDisplay += ": " + error.response?.data?.errors.join(" | ");
+      }
+      errorToDisplay += ')';
     }
     if (error.response?.data?.ref) {
       errorToDisplay += " (ref: " + error.response.data.ref + ")";
     }
     errorToDisplay += ".";
 
-    hideLoader();
     updateProgress(errorToDisplay);
   }
-  ui.reload();
-}
 
-async function fetchAll(url) {
-  let nextUrl = url;
-  let result = [ ];
-  while(nextUrl) {
-    let response = await api.fetch(nextUrl);
-    result.push(...response.body.value);
-    nextUrl = response.body['@odata.nextLink'];
-  }
-  return result;
+  hideLoader();
+  ui.reload();
 }
 
 function countDownToCloseDialog() {

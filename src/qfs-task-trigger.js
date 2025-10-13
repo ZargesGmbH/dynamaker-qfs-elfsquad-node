@@ -11,17 +11,79 @@ export const handler = async (event) => {
   const configurationId = body?.configurationId;
   const quotationId = body?.quotationId;
 
-  if (!configurationId || !quotationId) {
+  if (!quotationId) {
     return {
       statusCode: 400,
-      body: JSON.stringify({ message: 'Missing configurationId and/or quotationId in request body' }),
+      body: JSON.stringify({ message: 'Missing quotationId in request body' }),
     };
   }
 
   // Get Elfsquad access token using OpenID client credentials
   const accessToken = await getElfsquadToken();
 
-  // Fetch configuration details from Elfsquad using the access token
+  let configurationIds;
+  if (configurationId) {
+    // Use provided configurationId if available in payload.
+    const isValidConfiguration = await checkConfigurationBelongsToQuotation(accessToken, configurationId, quotationId);
+    if (!isValidConfiguration) {
+      console.log("QuotationId and configurationId don't match.");
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ message: "QuotationId and configurationId don't match." }),
+      };
+    }
+    configurationIds = new Set([configurationId]);
+  } else {
+    // Get configurationIds from quotation if not provided in payload.
+    configurationIds = await getConfigurationIdsFromQuotation(accessToken, quotationId);
+  }
+
+  const errors = [];
+  for (const configurationId of configurationIds) {
+    const result = await triggerQfsJobForConfiguration(accessToken, quotationId, configurationId);
+
+    if (result.statusCode >= 400) {
+      errors.push(`Failed to trigger QFS job for configuration ${configurationId}: ${result.message}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ message: 'Error triggering PDF generation', errors }),
+    };
+  }
+
+  return {
+    statusCode: 200,
+    body: 'QFS job(s) successfully started.',
+  };
+}
+
+async function checkConfigurationBelongsToQuotation(accessToken, configurationId, quotationId) {
+  const configurationIds = await getConfigurationIdsFromQuotation(accessToken, quotationId);
+  return configurationIds.has(configurationId);
+}
+
+async function getConfigurationIdsFromQuotation(accessToken, quotationId) {
+  const configurationIds = new Set();
+  const configurationsRes = await axios.get(
+    `${ELFSQUAD_API_BASE_URL}/data/1/quotationlines?\$filter=quotationId eq ${quotationId}&\$select=configurationId`,
+    {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    }
+  );
+  configurationsRes.data.value.forEach(item => {
+    if (item.configurationId) {
+      configurationIds.add(item.configurationId);
+    }
+  });
+
+  return configurationIds;
+}
+
+async function triggerQfsJobForConfiguration(accessToken, quotationId, configurationId) {
+  // Fetch configuration details from Elfsquad
   let configRes;
   try {
     configRes = await axios.get(
@@ -32,15 +94,16 @@ export const handler = async (event) => {
     );
   } catch (error) {
     if (error.response && error.response.status === 404) {
+      console.error(`Configuration ${configurationId} not found.`);
       return {
-        statusCode: 404,
-        body: JSON.stringify({ message: 'Configuration not found', configurationId }),
+        statusCode: error.response.status,
+        message: `Configuration ${configurationId} not found.`,
       };
     } else {
       console.error('Error fetching configuration from Elfsquad:', error);
       return {
         statusCode: 500,
-        body: JSON.stringify({ message: 'Error fetching configuration', error: error }),
+        message: `Error fetching configuration ${configurationId}: ${JSON.stringify(error)}`,
       };
     }
   }
@@ -48,9 +111,11 @@ export const handler = async (event) => {
 
   // Check configuration model ID
   if (configuration.configurationModelId !== process.env.ElfsquadConfiguratorModelId) {
+    console.error(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} does not match` +
+      ` expected ${process.env.ElfsquadConfiguratorModelId}. Skipping.`);
     return {
       statusCode: 400,
-      body: JSON.stringify({ message: "Model ID does not match. Flow stopped." }),
+      message: "Model ID does not match. Flow stopped."
     };
   }
 
@@ -87,8 +152,7 @@ export const handler = async (event) => {
 
   return {
     statusCode: qfsRes.status,
-    statusText: qfsRes.statusText,
-    body: JSON.stringify({ message: qfsRes.data?.message || 'QFS job started' }),
+    message: qfsRes.statusText,
   };
 }
 
