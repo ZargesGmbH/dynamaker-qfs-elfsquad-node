@@ -23,6 +23,15 @@ export const handler = async (event) => {
 
   let configurationIds;
   if (configurationId) {
+    // Use provided configurationId if available in payload.
+    const isValidConfiguration = await checkConfigurationBelongsToQuotation(accessToken, configurationId, quotationId);
+    if (!isValidConfiguration) {
+      console.log("QuotationId and configurationId don't match.");
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ message: "QuotationId and configurationId don't match." }),
+      };
+    }
     configurationIds = new Set([configurationId]);
   } else {
     // Get configurationIds from quotation if not provided in payload.
@@ -49,6 +58,28 @@ export const handler = async (event) => {
     statusCode: 200,
     body: 'QFS job(s) successfully started.',
   };
+}
+
+async function checkConfigurationBelongsToQuotation(accessToken, configurationId, quotationId) {
+  const configurationIds = await getConfigurationIdsFromQuotation(accessToken, quotationId);
+  return configurationIds.has(configurationId);
+}
+
+async function getConfigurationIdsFromQuotation(accessToken, quotationId) {
+  const configurationIds = new Set();
+  const configurationsRes = await axios.get(
+    `${ELFSQUAD_API_BASE_URL}/data/1/quotationlines?\$filter=quotationId eq ${quotationId}&\$select=configurationId`,
+    {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    }
+  );
+  configurationsRes.data.value.forEach(item => {
+    if (item.configurationId) {
+      configurationIds.add(item.configurationId);
+    }
+  });
+
+  return configurationIds;
 }
 
 async function triggerQfsJobForConfiguration(accessToken, quotationId, configurationId) {
@@ -123,23 +154,6 @@ async function triggerQfsJobForConfiguration(accessToken, quotationId, configura
     statusCode: qfsRes.status,
     message: qfsRes.statusText,
   };
-}
-
-async function getConfigurationIdsFromQuotation(accessToken, quotationId) {
-  const configurationIds = new Set();
-  const configurationsRes = await axios.get(
-    `${ELFSQUAD_API_BASE_URL}/data/1/quotationlines?\$filter=quotationId eq ${quotationId}&\$select=configurationId`,
-    {
-      headers: { 'Authorization': `Bearer ${accessToken}` },
-    }
-  );
-  configurationsRes.data.value.forEach(item => {
-    if (item.configurationId) {
-      configurationIds.add(item.configurationId);
-    }
-  });
-
-  return configurationIds;
 }
 
 async function getQuotationFilesExtended(accessToken, quotationId) {
