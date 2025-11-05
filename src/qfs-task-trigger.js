@@ -4,13 +4,18 @@ import { getElfsquadToken } from "./services/elfsquadService.js";
 const ELFSQUAD_API_BASE_URL = "https://api.elfsquad.io";
 const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
 const QFS_TASK_NAME = process.env.QfsTaskName || "generate-pdf";
-const ELFSQUAD_WEBHOOK_TOPIC = 'quotation.configurationadded';
+const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED = 'quotation.configurationadded';
+const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE = 'quotation.revisionmade';
+const ELFSQUAD_WEBHOOK_TOPICS = [
+  ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED,
+  ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE,
+];
 
 export const handler = async (event) => {
   // Parse webhook payload
   const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-  const quotationId = (body.Topic === ELFSQUAD_WEBHOOK_TOPIC) ? body.Content?.quotationId : body?.quotationId;
-  const configurationId = (body.Topic === ELFSQUAD_WEBHOOK_TOPIC) ? body.Content?.configurationId : body?.configurationId;
+  const quotationId = ELFSQUAD_WEBHOOK_TOPICS.includes(body.Topic) ? body.Content?.quotationId : body?.quotationId;
+  const configurationId = (body.Topic === ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED) ? body.Content?.configurationId : body?.configurationId;
 
   if (!quotationId) {
     return {
