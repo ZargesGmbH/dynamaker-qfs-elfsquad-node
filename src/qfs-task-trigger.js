@@ -27,6 +27,18 @@ export const handler = async (event) => {
   // Get Elfsquad access token using OpenID client credentials
   const accessToken = await getElfsquadToken();
 
+  // If invoked by the 'quotation.revisionmade' webhook, remove the previous PDF files first
+  if (body.Topic === ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE) {
+    const sourceQuotationId = body.Content?.sourceQuotationId;
+    const sourceQuotationConfigurationIds = await getConfigurationIdsFromQuotation(accessToken, sourceQuotationId);
+
+    for (const configId of sourceQuotationConfigurationIds) {
+      const configuration = await getConfigurationData(accessToken, configId);
+      await removeConfigurationFile(accessToken, quotationId, `${configuration.code}.pdf`);
+    }
+  }
+
+  // Get configurationIds for which we want to trigger the QFS job
   let configurationIds;
   if (configurationId) {
     // Use provided configurationId if available in payload.
@@ -89,7 +101,44 @@ async function getConfigurationIdsFromQuotation(accessToken, quotationId) {
 }
 
 async function triggerQfsJobForConfiguration(accessToken, quotationId, configurationId) {
-  // Fetch configuration details from Elfsquad
+  const configuration = await getConfigurationData(accessToken, configurationId);
+
+  // Check configuration model ID
+  if (configuration.configurationModelId !== process.env.ElfsquadConfiguratorModelId) {
+    console.error(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} does not match` +
+      ` expected ${process.env.ElfsquadConfiguratorModelId}. Skipping.`);
+    return {
+      statusCode: 400,
+      message: "Model ID does not match. Flow stopped."
+    };
+  }
+
+  // If a drawing already exists for this configuration, delete it first.
+  await removeConfigurationFile(accessToken, quotationId, `${configuration.code}.pdf`);
+
+  // Start QFS job
+  const qfsRes = await axios.post(QFS_API_JOBS_ENDPOINT, {
+    applicationId: process.env.DynamakerApplicationId,
+    task: QFS_TASK_NAME,
+    environment: process.env.QfsEnvironment,
+    configuration,
+    callbackUrl: `${process.env.QfsCallbackFunctionUrl}?cid=${configurationId}&qid=${quotationId}`,
+  }, {
+    headers: { 'qfs-api-key': process.env.QfsApiKey }
+  });
+
+  return {
+    statusCode: qfsRes.status,
+    message: qfsRes.statusText,
+  };
+}
+
+/**
+ * Fetch configuration details from Elfsquad
+ * @param accessToken
+ * @param configurationId
+ */
+async function getConfigurationData(accessToken, configurationId) {
   let configRes;
   try {
     configRes = await axios.get(
@@ -113,21 +162,12 @@ async function triggerQfsJobForConfiguration(accessToken, quotationId, configura
       };
     }
   }
-  const configuration = configRes.data;
 
-  // Check configuration model ID
-  if (configuration.configurationModelId !== process.env.ElfsquadConfiguratorModelId) {
-    console.error(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} does not match` +
-      ` expected ${process.env.ElfsquadConfiguratorModelId}. Skipping.`);
-    return {
-      statusCode: 400,
-      message: "Model ID does not match. Flow stopped."
-    };
-  }
+  return configRes.data;
+}
 
-  // If a drawing already exists for this configuration, delete it first.
+async function removeConfigurationFile(accessToken, quotationId, fileName) {
   const existingFiles = await getQuotationFilesExtended(accessToken, quotationId);
-  const fileName = `${configuration.code}.pdf`;
   const existingDrawingFile = existingFiles.find(f => f.name === fileName);
   if (existingDrawingFile) {
     try {
@@ -144,22 +184,6 @@ async function triggerQfsJobForConfiguration(accessToken, quotationId, configura
       console.error('Delete failed:', error);
     }
   }
-
-  // Start QFS job
-  const qfsRes = await axios.post(QFS_API_JOBS_ENDPOINT, {
-    applicationId: process.env.DynamakerApplicationId,
-    task: QFS_TASK_NAME,
-    environment: process.env.QfsEnvironment,
-    configuration,
-    callbackUrl: `${process.env.QfsCallbackFunctionUrl}?cid=${configurationId}&qid=${quotationId}`,
-  }, {
-    headers: { 'qfs-api-key': process.env.QfsApiKey }
-  });
-
-  return {
-    statusCode: qfsRes.status,
-    message: qfsRes.statusText,
-  };
 }
 
 async function getQuotationFilesExtended(accessToken, quotationId) {
