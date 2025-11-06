@@ -153,17 +153,9 @@ async function getConfigurationData(elfsquadApi, configurationId) {
     configuration = await elfsquadApi.get(`/configurator/1/configurator/open/${configurationId}`);
   } catch (error) {
     if (error.response && error.response.status === 404) {
-      console.error(`Configuration ${configurationId} not found.`);
-      return {
-        statusCode: error.response.status,
-        message: `Configuration ${configurationId} not found.`,
-      };
+      throw new Error(`Configuration ${configurationId} not found.`);
     } else {
-      console.error('Error fetching configuration from Elfsquad:', error);
-      return {
-        statusCode: 500,
-        message: `Error fetching configuration ${configurationId}: ${JSON.stringify(error)}`,
-      };
+      throw new Error(`Error fetching configuration ${configurationId} from Elfsquad: ${JSON.stringify(error)}`);
     }
   }
 
