@@ -28,7 +28,6 @@ export const handler = async (event) => {
 
   // If invoked by the 'quotation.revisionmade' webhook, remove the previous PDF files first
   if (body.Topic === ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE) {
-    await clearQuotationLogs(elfsquadApi, quotationId);
     const sourceQuotationId = body.Content?.sourceQuotationId;
     const sourceQuotationConfigurationIds = await getConfigurationIdsFromQuotation(elfsquadApi, sourceQuotationId);
 
@@ -36,6 +35,7 @@ export const handler = async (event) => {
       const configuration = await getConfigurationData(elfsquadApi, configId);
       await removeConfigurationFile(elfsquadApi, quotationId, `${configuration.code}.pdf`);
     }
+    await clearQuotationLogs(elfsquadApi, quotationId);
   }
 
   // Get configurationIds for which we want to trigger the QFS job
