@@ -1,16 +1,20 @@
+import { getElfsquadApi, getAll, addQuotationLog, clearQuotationLogs } from "./services/elfsquadService.js";
 import axios from "axios";
-import { getElfsquadToken } from "./services/elfsquadService.js";
 
-const ELFSQUAD_API_BASE_URL = "https://api.elfsquad.io";
 const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
 const QFS_TASK_NAME = process.env.QfsTaskName || "generate-pdf";
-const ELFSQUAD_WEBHOOK_TOPIC = 'quotation.configurationadded';
+const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED = 'quotation.configurationadded';
+const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE = 'quotation.revisionmade';
+const ELFSQUAD_WEBHOOK_TOPICS = [
+  ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED,
+  ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE,
+];
 
 export const handler = async (event) => {
   // Parse webhook payload
   const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-  const quotationId = (body.Topic === ELFSQUAD_WEBHOOK_TOPIC) ? body.Content?.quotationId : body?.quotationId;
-  const configurationId = (body.Topic === ELFSQUAD_WEBHOOK_TOPIC) ? body.Content?.configurationId : body?.configurationId;
+  const quotationId = ELFSQUAD_WEBHOOK_TOPICS.includes(body.Topic) ? body.Content?.quotationId : body?.quotationId;
+  const configurationId = (body.Topic === ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED) ? body.Content?.configurationId : body?.configurationId;
 
   if (!quotationId) {
     return {
@@ -19,13 +23,26 @@ export const handler = async (event) => {
     };
   }
 
-  // Get Elfsquad access token using OpenID client credentials
-  const accessToken = await getElfsquadToken();
+  // Get Elfsquad Api instance
+  const elfsquadApi = await getElfsquadApi();
 
+  // If invoked by the 'quotation.revisionmade' webhook, remove the previous PDF files first
+  if (body.Topic === ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE) {
+    const sourceQuotationId = body.Content?.sourceQuotationId;
+    const sourceQuotationConfigurationIds = await getConfigurationIdsFromQuotation(elfsquadApi, sourceQuotationId);
+
+    for (const configId of sourceQuotationConfigurationIds) {
+      const configuration = await getConfigurationData(elfsquadApi, configId);
+      await removeConfigurationFile(elfsquadApi, quotationId, `${configuration.code}.pdf`);
+    }
+    await clearQuotationLogs(elfsquadApi, quotationId);
+  }
+
+  // Get configurationIds for which we want to trigger the QFS job
   let configurationIds;
   if (configurationId) {
     // Use provided configurationId if available in payload.
-    const isValidConfiguration = await checkConfigurationBelongsToQuotation(accessToken, configurationId, quotationId);
+    const isValidConfiguration = await checkConfigurationBelongsToQuotation(elfsquadApi, configurationId, quotationId);
     if (!isValidConfiguration) {
       console.log("QuotationId and configurationId don't match.");
       return {
@@ -36,15 +53,19 @@ export const handler = async (event) => {
     configurationIds = new Set([configurationId]);
   } else {
     // Get configurationIds from quotation if not provided in payload.
-    configurationIds = await getConfigurationIdsFromQuotation(accessToken, quotationId);
+    configurationIds = await getConfigurationIdsFromQuotation(elfsquadApi, quotationId);
   }
 
   const errors = [];
   for (const configurationId of configurationIds) {
-    const result = await triggerQfsJobForConfiguration(accessToken, quotationId, configurationId);
+    const result = await triggerQfsJobForConfiguration(elfsquadApi, quotationId, configurationId);
 
     if (result.statusCode >= 400) {
-      errors.push(`Failed to trigger QFS job for configuration ${configurationId}: ${result.message}`);
+      const msg = `Failed to trigger QFS job for configuration ${configurationId}: ${result.message}`;
+      await addQuotationLog(elfsquadApi, quotationId, msg);
+      errors.push(msg);
+    } else {
+      await addQuotationLog(elfsquadApi, quotationId, `Requested file generation for configuration ${result.configurationCode}`);
     }
   }
 
@@ -61,20 +82,18 @@ export const handler = async (event) => {
   };
 }
 
-async function checkConfigurationBelongsToQuotation(accessToken, configurationId, quotationId) {
-  const configurationIds = await getConfigurationIdsFromQuotation(accessToken, quotationId);
+async function checkConfigurationBelongsToQuotation(elfsquadApi, configurationId, quotationId) {
+  const configurationIds = await getConfigurationIdsFromQuotation(elfsquadApi, quotationId);
   return configurationIds.has(configurationId);
 }
 
-async function getConfigurationIdsFromQuotation(accessToken, quotationId) {
+async function getConfigurationIdsFromQuotation(elfsquadApi, quotationId) {
   const configurationIds = new Set();
-  const configurationsRes = await axios.get(
-    `${ELFSQUAD_API_BASE_URL}/data/1/quotationlines?\$filter=quotationId eq ${quotationId}&\$select=configurationId`,
-    {
-      headers: { 'Authorization': `Bearer ${accessToken}` },
-    }
+  const configurationsRes = await getAll(
+    elfsquadApi,
+    `/data/1/quotationlines?\$filter=quotationId eq ${quotationId}&\$select=configurationId`,
   );
-  configurationsRes.data.value.forEach(item => {
+  configurationsRes.forEach(item => {
     if (item.configurationId) {
       configurationIds.add(item.configurationId);
     }
@@ -83,32 +102,14 @@ async function getConfigurationIdsFromQuotation(accessToken, quotationId) {
   return configurationIds;
 }
 
-async function triggerQfsJobForConfiguration(accessToken, quotationId, configurationId) {
-  // Fetch configuration details from Elfsquad
-  let configRes;
-  try {
-    configRes = await axios.get(
-      `${ELFSQUAD_API_BASE_URL}/configurator/1/configurator/open/${configurationId}`,
-      {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-      }
-    );
-  } catch (error) {
-    if (error.response && error.response.status === 404) {
-      console.error(`Configuration ${configurationId} not found.`);
-      return {
-        statusCode: error.response.status,
-        message: `Configuration ${configurationId} not found.`,
-      };
-    } else {
-      console.error('Error fetching configuration from Elfsquad:', error);
-      return {
-        statusCode: 500,
-        message: `Error fetching configuration ${configurationId}: ${JSON.stringify(error)}`,
-      };
-    }
-  }
-  const configuration = configRes.data;
+/**
+ * Trigger QFS job for a specific configuration.
+ * @param elfsquadApi
+ * @param quotationId
+ * @param configurationId
+ */
+async function triggerQfsJobForConfiguration(elfsquadApi, quotationId, configurationId) {
+  const configuration = await getConfigurationData(elfsquadApi, configurationId);
 
   // Check configuration model ID
   if (configuration.configurationModelId !== process.env.ElfsquadConfiguratorModelId) {
@@ -121,24 +122,7 @@ async function triggerQfsJobForConfiguration(accessToken, quotationId, configura
   }
 
   // If a drawing already exists for this configuration, delete it first.
-  const existingFiles = await getQuotationFilesExtended(accessToken, quotationId);
-  const fileName = `${configuration.code}.pdf`;
-  const existingDrawingFile = existingFiles.find(f => f.name === fileName);
-  if (existingDrawingFile) {
-    try {
-      await axios.delete(
-        `${ELFSQUAD_API_BASE_URL}/api/2/files/entities/${existingDrawingFile.id}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-          },
-        }
-      );
-      console.log('Delete successful.');
-    } catch (error) {
-      console.error('Delete failed:', error);
-    }
-  }
+  await removeConfigurationFile(elfsquadApi, quotationId, `${configuration.code}.pdf`);
 
   // Start QFS job
   const qfsRes = await axios.post(QFS_API_JOBS_ENDPOINT, {
@@ -154,25 +138,62 @@ async function triggerQfsJobForConfiguration(accessToken, quotationId, configura
   return {
     statusCode: qfsRes.status,
     message: qfsRes.statusText,
+    configurationCode: configuration.code,
   };
 }
 
-async function getQuotationFilesExtended(accessToken, quotationId) {
-  const quotationFilesWithNames = [];
-  const quotationFiles = await axios.get(
-    `${ELFSQUAD_API_BASE_URL}/data/1/QuotationFiles?\$filter=quotationId eq ${quotationId}`,
-    {
-      headers: { 'Authorization': `Bearer ${accessToken}` },
+/**
+ * Fetch configuration data from Elfsquad.
+ * @param elfsquadApi
+ * @param configurationId
+ */
+async function getConfigurationData(elfsquadApi, configurationId) {
+  let configuration;
+  try {
+    configuration = await elfsquadApi.get(`/configurator/1/configurator/open/${configurationId}`);
+  } catch (error) {
+    if (error.response && error.response.status === 404) {
+      throw new Error(`Configuration ${configurationId} not found.`);
+    } else {
+      throw new Error(`Error fetching configuration ${configurationId} from Elfsquad: ${JSON.stringify(error)}`);
     }
-  );
+  }
 
-  for (const file of quotationFiles.data.value) {
-    const fileDetails = await axios.get(
-      `${ELFSQUAD_API_BASE_URL}/data/1/FileEntities/${file.fileId}`,
-      {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-      }
-    );
+  return configuration.data;
+}
+
+/**
+ * Remove a file from a quotation.
+ * @param elfsquadApi
+ * @param quotationId
+ * @param fileName
+ */
+async function removeConfigurationFile(elfsquadApi, quotationId, fileName) {
+  const existingFiles = await getQuotationFilesExtended(elfsquadApi, quotationId);
+  const existingDrawingFile = existingFiles.find(f => f.name === fileName);
+  if (existingDrawingFile) {
+    try {
+      await elfsquadApi.delete(`/api/2/files/entities/${existingDrawingFile.id}`);
+      await addQuotationLog(elfsquadApi, quotationId, `File ${fileName} deleted.`);
+      console.log('Delete successful.');
+    } catch (error) {
+      await addQuotationLog(elfsquadApi, quotationId, `Failed to delete file ${fileName}.`);
+      console.error('Delete failed:', error);
+    }
+  }
+}
+
+/**
+ * Get quotation file IDs and file names.
+ * @param elfsquadApi
+ * @param quotationId
+ */
+async function getQuotationFilesExtended(elfsquadApi, quotationId) {
+  const quotationFilesWithNames = [];
+  const quotationFiles = await getAll(elfsquadApi, `/data/1/QuotationFiles?\$filter=quotationId eq ${quotationId}`);
+
+  for (const file of quotationFiles) {
+    const fileDetails = await elfsquadApi.get(`/data/1/FileEntities/${file.fileId}`);
     quotationFilesWithNames.push({
       id: file.fileId,
       name: fileDetails.data.name

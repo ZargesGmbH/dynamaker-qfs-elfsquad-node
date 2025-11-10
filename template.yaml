@@ -20,7 +20,7 @@ Parameters:
 
 Globals:
   Function:
-    Timeout: 10
+    Timeout: 15
     Runtime: nodejs20.x
 
 Resources:

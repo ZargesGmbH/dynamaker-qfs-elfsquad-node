@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getElfsquadToken } from "./services/elfsquadService.js";
+import { getElfsquadApi, getAll, addQuotationLog } from "./services/elfsquadService.js";
 import fs from "fs";
 import FormData from "form-data";
 
@@ -26,13 +26,9 @@ export const handler = async (event) => {
     };
   }
 
-  const accessToken = await getElfsquadToken();
-  const configuration = await axios.get(
-    `${ELFSQUAD_API_BASE_URL}/data/1/Configurations/${configurationId}`,
-    {
-      headers: { 'Authorization': `Bearer ${accessToken}` },
-    }
-  );
+  // Get Elfsquad Api instance
+  const elfsquadApi = await getElfsquadApi();
+  const configuration = await elfsquadApi.get(`/data/1/Configurations/${configurationId}`);
 
   if (!configuration.data) {
     console.error('Configuration not found for ID:', configurationId);
@@ -55,16 +51,7 @@ export const handler = async (event) => {
   const form = new FormData();
   form.append('file', fs.createReadStream(`/tmp/${fileName}`));
   try {
-    const response = await axios.post(
-      `${ELFSQUAD_API_BASE_URL}/quotation/1/quotations/${quotationId}/addfile`,
-      form,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          ...form.getHeaders(),
-        },
-      }
-    );
+    const response = await elfsquadApi.post(`/quotation/1/quotations/${quotationId}/addfile`, form);
     console.log('Upload successful. Response:', response.data);
     return {
       statusCode: 200,
