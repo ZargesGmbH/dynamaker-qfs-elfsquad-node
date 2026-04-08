@@ -29,8 +29,8 @@ You can trigger the DynaMaker job from Elfsquad in two ways: using webhooks or c
 1. In Elfsquad, go to Integrations > Webhooks and create a new webhook.
 2. Set the Callback URL to the QFS Task Trigger AWS Lambda endpoint URL (will be printed out in the terminal once you
    deploy the application to the cloud).
-3. Select the Topics that should trigger the webhook (currently supported Topics are `quotation.configurationadded` and
-   `quotation.revisionmade`).
+3. Select the Topics that should trigger the webhook (currently supported Topics are `quotation.configurationadded`,
+   `quotation.revisionmade`, `quotation.copied`, and `quotation.requested`).
 
 ### Option 2: Using Elfsquad Custom Triggers with Scripts
 

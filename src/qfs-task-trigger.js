@@ -5,9 +5,13 @@ const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
 const QFS_TASK_NAME = process.env.QfsTaskName || "generate-pdf";
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED = 'quotation.configurationadded';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE = 'quotation.revisionmade';
+const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_COPIED = 'quotation.copied';
+const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REQUESTED = 'quotation.requested';
 const ELFSQUAD_WEBHOOK_TOPICS = [
   ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED,
   ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE,
+  ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_COPIED,
+  ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REQUESTED,
 ];
 
 export const handler = async (event) => {
@@ -26,8 +30,8 @@ export const handler = async (event) => {
   // Get Elfsquad Api instance
   const elfsquadApi = await getElfsquadApi();
 
-  // If invoked by the 'quotation.revisionmade' webhook, remove the previous PDF files first
-  if (body.Topic === ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE) {
+  // If invoked by the 'quotation.revisionmade' or 'quotation.copied' webhook, remove the previous PDF files first
+  if (body.Topic === ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE || body.Topic === ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_COPIED) {
     const sourceQuotationId = body.Content?.sourceQuotationId;
     const sourceQuotationConfigurationIds = await getConfigurationIdsFromQuotation(elfsquadApi, sourceQuotationId);
 
