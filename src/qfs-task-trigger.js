@@ -61,6 +61,8 @@ export const handler = async (event) => {
   }
 
   const errors = [];
+  let started = 0;
+  let skipped = 0;
   for (const configurationId of configurationIds) {
     const result = await triggerQfsJobForConfiguration(elfsquadApi, quotationId, configurationId);
 
@@ -68,8 +70,11 @@ export const handler = async (event) => {
       const msg = `Failed to trigger QFS job for configuration ${configurationId}: ${result.message}`;
       await addQuotationLog(elfsquadApi, quotationId, msg);
       errors.push(msg);
-    } else {
+    } else if (result.configurationCode) {
       await addQuotationLog(elfsquadApi, quotationId, `Requested file generation for configuration ${result.configurationCode}`);
+      started++;
+    } else {
+      skipped++;
     }
   }
 
@@ -80,9 +85,13 @@ export const handler = async (event) => {
     };
   }
 
+  const parts = [];
+  if (started > 0) parts.push(`${started} QFS job(s) successfully started`);
+  if (skipped > 0) parts.push(`${skipped} configuration(s) skipped (unsupported model ID)`);
+
   return {
     statusCode: 200,
-    body: 'QFS job(s) successfully started.',
+    body: parts.join(', ') + '.',
   };
 }
 
@@ -117,11 +126,11 @@ async function triggerQfsJobForConfiguration(elfsquadApi, quotationId, configura
 
   // Check configuration model ID
   if (configuration.configurationModelId !== process.env.ElfsquadConfiguratorModelId) {
-    console.error(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} does not match` +
+    console.log(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} does not match` +
       ` expected ${process.env.ElfsquadConfiguratorModelId}. Skipping.`);
     return {
-      statusCode: 400,
-      message: "Model ID does not match. Flow stopped."
+      statusCode: 200,
+      message: "Model ID does not match. Skipped."
     };
   }
 
