@@ -3,6 +3,10 @@ import axios from "axios";
 
 const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
 const QFS_TASK_NAME = process.env.QfsTaskName || "generate-pdf";
+const ELFSQUAD_CONFIGURATOR_MODEL_IDS = (process.env.ElfsquadConfiguratorModelIds || "")
+  .split(",")
+  .map(id => id.trim())
+  .filter(Boolean);
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED = 'quotation.configurationadded';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE = 'quotation.revisionmade';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_COPIED = 'quotation.copied';
@@ -125,12 +129,12 @@ async function triggerQfsJobForConfiguration(elfsquadApi, quotationId, configura
   const configuration = await getConfigurationData(elfsquadApi, configurationId);
 
   // Check configuration model ID
-  if (configuration.configurationModelId !== process.env.ElfsquadConfiguratorModelId) {
-    console.log(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} does not match` +
-      ` expected ${process.env.ElfsquadConfiguratorModelId}. Skipping.`);
+  if (!ELFSQUAD_CONFIGURATOR_MODEL_IDS.includes(configuration.configurationModelId)) {
+    console.log(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} is not in the` +
+      ` list of supported model IDs (${ELFSQUAD_CONFIGURATOR_MODEL_IDS.join(", ") || "none configured"}). Skipping.`);
     return {
       statusCode: 200,
-      message: "Model ID does not match. Skipped."
+      message: "Model ID not supported. Skipped."
     };
   }
 
