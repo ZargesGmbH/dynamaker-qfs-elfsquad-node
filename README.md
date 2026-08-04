@@ -52,8 +52,10 @@ You can trigger the DynaMaker job from Elfsquad in two ways: using webhooks or c
 ## Environment Variables
 Configure all required variables in your `.env.production` file. Refer to `.env.example` for details and example values.
 
-`ElfsquadConfiguratorModelIds` accepts a comma-separated list of Elfsquad configurator model IDs (without spaces around
-the commas). Only configurations belonging to one of these models are sent to QFS; all others are skipped.
+`ElfsquadModelToDynamakerApplicationMap` maps each supported Elfsquad configurator model ID to the DynaMaker
+application that renders it, as a comma-separated list of `<modelId>:<applicationId>` pairs (without spaces). Several
+model IDs may map to the same application. Only configurations belonging to one of the listed models are sent to QFS
+(using the mapped application ID); all others are skipped.
 
 ## Deployment
 Deploy the application using `npm run deploy`.

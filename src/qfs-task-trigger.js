@@ -3,10 +3,15 @@ import axios from "axios";
 
 const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
 const QFS_TASK_NAME = process.env.QfsTaskName || "generate-pdf";
-const ELFSQUAD_CONFIGURATOR_MODEL_IDS = (process.env.ElfsquadConfiguratorModelIds || "")
-  .split(",")
-  .map(id => id.trim())
-  .filter(Boolean);
+// Maps each supported Elfsquad configurator model ID to the DynaMaker application that renders it.
+// Format: <configuratorModelId>:<dynamakerApplicationId>, comma-separated. Several model IDs may
+// map to the same application.
+const MODEL_ID_TO_APPLICATION_ID = new Map(
+  (process.env.ElfsquadModelToDynamakerApplicationMap || "")
+    .split(",")
+    .map(pair => pair.split(":").map(part => part.trim()))
+    .filter(([modelId, applicationId]) => modelId && applicationId)
+);
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED = 'quotation.configurationadded';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE = 'quotation.revisionmade';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_COPIED = 'quotation.copied';
@@ -128,10 +133,11 @@ async function getConfigurationIdsFromQuotation(elfsquadApi, quotationId) {
 async function triggerQfsJobForConfiguration(elfsquadApi, quotationId, configurationId) {
   const configuration = await getConfigurationData(elfsquadApi, configurationId);
 
-  // Check configuration model ID
-  if (!ELFSQUAD_CONFIGURATOR_MODEL_IDS.includes(configuration.configurationModelId)) {
+  // Look up the DynaMaker application responsible for this configuration's model ID
+  const applicationId = MODEL_ID_TO_APPLICATION_ID.get(configuration.configurationModelId);
+  if (!applicationId) {
     console.log(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} is not in the` +
-      ` list of supported model IDs (${ELFSQUAD_CONFIGURATOR_MODEL_IDS.join(", ") || "none configured"}). Skipping.`);
+      ` list of supported model IDs (${[...MODEL_ID_TO_APPLICATION_ID.keys()].join(", ") || "none configured"}). Skipping.`);
     return {
       statusCode: 200,
       message: "Model ID not supported. Skipped."
@@ -143,7 +149,7 @@ async function triggerQfsJobForConfiguration(elfsquadApi, quotationId, configura
 
   // Start QFS job
   const qfsRes = await axios.post(QFS_API_JOBS_ENDPOINT, {
-    applicationId: process.env.DynamakerApplicationId,
+    applicationId,
     task: QFS_TASK_NAME,
     environment: process.env.QfsEnvironment,
     configuration,
