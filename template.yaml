@@ -7,7 +7,7 @@ Parameters:
     Type: String
   ElfsquadClientSecret:
     Type: String
-  ElfsquadModelToDynamakerApplicationMap:
+  DynamakerApplicationToElfsquadModelsMap:
     Type: String
   QfsApiKey:
     Type: String
@@ -31,7 +31,7 @@ Resources:
         Variables:
           ElfsquadClientId: !Ref ElfsquadClientId
           ElfsquadClientSecret: !Ref ElfsquadClientSecret
-          ElfsquadModelToDynamakerApplicationMap: !Ref ElfsquadModelToDynamakerApplicationMap
+          DynamakerApplicationToElfsquadModelsMap: !Ref DynamakerApplicationToElfsquadModelsMap
           QfsApiKey: !Ref QfsApiKey
           QfsCallbackFunctionUrl: !GetAtt QFSCallbackFunctionUrl.FunctionUrl
           QfsEnvironment: !Ref QfsEnvironment

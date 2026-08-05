@@ -4,13 +4,18 @@ import axios from "axios";
 const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
 const QFS_TASK_NAME = process.env.QfsTaskName || "generate-pdf";
 // Maps each supported Elfsquad configurator model ID to the DynaMaker application that renders it.
-// Format: <configuratorModelId>:<dynamakerApplicationId>, comma-separated. Several model IDs may
-// map to the same application.
+// Configured per application: <dynamakerApplicationId>:<modelId>,<modelId>, entries separated by
+// semicolons. An application may list several model IDs.
 const MODEL_ID_TO_APPLICATION_ID = new Map(
-  (process.env.ElfsquadModelToDynamakerApplicationMap || "")
-    .split(",")
-    .map(pair => pair.split(":").map(part => part.trim()))
-    .filter(([modelId, applicationId]) => modelId && applicationId)
+  (process.env.DynamakerApplicationToElfsquadModelsMap || "")
+    .split(";")
+    .map(entry => entry.split(":").map(part => part.trim()))
+    .filter(([applicationId, modelIds]) => applicationId && modelIds)
+    .flatMap(([applicationId, modelIds]) => modelIds
+      .split(",")
+      .map(modelId => modelId.trim())
+      .filter(Boolean)
+      .map(modelId => [modelId, applicationId]))
 );
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED = 'quotation.configurationadded';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE = 'quotation.revisionmade';
