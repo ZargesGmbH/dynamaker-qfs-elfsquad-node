@@ -1,6 +1,42 @@
 import { getElfsquadApi, getAll, addQuotationLog, clearQuotationLogs } from "./services/elfsquadService.js";
 import axios from "axios";
 
+// A "job service" is anything that speaks the DynaMaker QFS job protocol: it accepts
+// POST { configuration, callbackUrl, … } and later POSTs the finished PDF (or
+// ?success=false with a JSON message) to that callbackUrl — see qfs-callback.js, which
+// is job-service-agnostic and needs no changes here. DynaMaker QFS itself
+// (https://qfs.dynamaker.com/jobs) is the default/primary target this project was built
+// for, but any other service implementing the same protocol works too.
+//
+// Each Elfsquad configurator model ID is routed to exactly one job service, configured
+// via JobServicesByModelId (JSON array, see .env.example). This lets some configurator
+// models keep using DynaMaker QFS while others are pointed at a different service —
+// migrate one model at a time, no code changes, no shared config between models.
+const JOB_SERVICES = parseJobServices(process.env.JobServicesByModelId);
+const MODEL_ID_TO_SERVICE = new Map(
+  JOB_SERVICES.flatMap((service) => service.modelIds.map((modelId) => [modelId, service])),
+);
+
+function parseJobServices(raw) {
+  if (!raw) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`JobServicesByModelId is not valid JSON: ${error.message}`);
+  }
+  if (!Array.isArray(parsed)) throw new Error('JobServicesByModelId must be a JSON array');
+  for (const service of parsed) {
+    if (!service || typeof service !== 'object' || !Array.isArray(service.modelIds) || service.modelIds.length === 0) {
+      throw new Error(`JobServicesByModelId entry missing a non-empty modelIds array: ${JSON.stringify(service)}`);
+    }
+    if (!service.url || !service.apiKey) {
+      throw new Error(`JobServicesByModelId entry for ${service.modelIds.join(', ')} is missing url or apiKey.`);
+    }
+  }
+  return parsed;
+}
+
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED = 'quotation.configurationadded';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE = 'quotation.revisionmade';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_COPIED = 'quotation.copied';
@@ -114,10 +150,9 @@ async function getConfigurationIdsFromQuotation(elfsquadApi, quotationId) {
 }
 
 /**
- * Trigger the render-service job for a specific configuration. The render service is a
- * self-hosted replacement for the DynaMaker QFS cloud job: same job/callback shape
- * (POST job payload with a callbackUrl, PDF arrives later at qfs-callback.js), but it
- * renders the W105 three.js configurator headlessly instead of calling out to DynaMaker.
+ * Trigger the job service responsible for a specific configuration's model ID (see
+ * JOB_SERVICES / MODEL_ID_TO_SERVICE above). Same job/callback shape regardless of which
+ * service is targeted — DynaMaker QFS or any other compatible service.
  * @param elfsquadApi
  * @param quotationId
  * @param configurationId
@@ -125,33 +160,39 @@ async function getConfigurationIdsFromQuotation(elfsquadApi, quotationId) {
 async function triggerRenderJobForConfiguration(elfsquadApi, quotationId, configurationId) {
   const configuration = await getConfigurationData(elfsquadApi, configurationId);
 
-  // Check configuration model ID
-  if (configuration.configurationModelId !== process.env.ElfsquadConfiguratorModelId) {
-    console.log(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} does not match` +
-      ` expected ${process.env.ElfsquadConfiguratorModelId}. Skipping.`);
+  const service = MODEL_ID_TO_SERVICE.get(configuration.configurationModelId);
+  if (!service) {
+    console.log(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} is not in the` +
+      ` list of supported model IDs (${[...MODEL_ID_TO_SERVICE.keys()].join(", ") || "none configured"}). Skipping.`);
     return {
       statusCode: 200,
-      message: "Model ID does not match. Skipped."
+      message: "Model ID not supported. Skipped."
     };
   }
 
   // If a drawing already exists for this configuration, delete it first.
   await removeConfigurationFile(elfsquadApi, quotationId, `${configuration.code}.pdf`);
 
-  // Start the render job. process.env.RenderServiceUrl points at the render-service Lambda
-  // Function URL in web-cad-test (configurators/w105-output/scripts/render-service/), which
-  // replaces qfs.dynamaker.com/jobs. No applicationId/task/environment: this service renders
-  // exactly one configurator, so there is nothing to route.
-  const renderRes = await axios.post(process.env.RenderServiceUrl, {
+  // applicationId/task/environment are DynaMaker-specific job parameters — only sent when
+  // the service entry actually carries them, so a non-DynaMaker service just gets
+  // { configuration, callbackUrl }.
+  const payload = {
     configuration,
     callbackUrl: `${process.env.QfsCallbackFunctionUrl}?cid=${configurationId}&qid=${quotationId}`,
-  }, {
-    headers: { 'x-render-api-key': process.env.RenderApiKey }
+  };
+  if (service.applicationId) {
+    payload.applicationId = service.applicationId;
+    payload.task = service.task || 'generate-pdf';
+  }
+  if (service.environment) payload.environment = service.environment;
+
+  const jobRes = await axios.post(service.url, payload, {
+    headers: { [service.apiKeyHeader || 'qfs-api-key']: service.apiKey },
   });
 
   return {
-    statusCode: renderRes.status,
-    message: renderRes.statusText,
+    statusCode: jobRes.status,
+    message: jobRes.statusText,
     configurationCode: configuration.code,
   };
 }
