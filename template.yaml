@@ -7,9 +7,7 @@ Parameters:
     Type: String
   ElfsquadClientSecret:
     Type: String
-  ElfsquadConfiguratorModelId:
-    Type: String
-  DynamakerApplicationId:
+  DynamakerApplicationToElfsquadModelsMap:
     Type: String
   QfsApiKey:
     Type: String
@@ -31,10 +29,9 @@ Resources:
       Handler: qfs-task-trigger.handler
       Environment:
         Variables:
-          DynamakerApplicationId: !Ref DynamakerApplicationId
           ElfsquadClientId: !Ref ElfsquadClientId
           ElfsquadClientSecret: !Ref ElfsquadClientSecret
-          ElfsquadConfiguratorModelId: !Ref ElfsquadConfiguratorModelId
+          DynamakerApplicationToElfsquadModelsMap: !Ref DynamakerApplicationToElfsquadModelsMap
           QfsApiKey: !Ref QfsApiKey
           QfsCallbackFunctionUrl: !GetAtt QFSCallbackFunctionUrl.FunctionUrl
           QfsEnvironment: !Ref QfsEnvironment
