@@ -1,14 +1,22 @@
-# DynaMaker QFS and Elfsquad integration AWS SAM App
+# Elfsquad drawing-generation integration AWS SAM App
 
-This Node.js and AWS SAM-based project provides an integration between Elfsquad and DynaMaker QFS. It allows you to
-generate DynaMaker quotation files, such as drawings, based on Elfsquad webhooks or by using buttons in the Elfsquad UI.
-Generated files are automatically stored in the corresponding Elfsquad quotation.
+This Node.js and AWS SAM-based project triggers PDF drawing generation for Elfsquad quotations, based on Elfsquad
+webhooks or by using buttons in the Elfsquad UI. Generated files are automatically stored in the corresponding
+Elfsquad quotation.
+
+Originally this triggered the DynaMaker cloud "Quotation File Service" (QFS) to render the drawing. It now instead
+calls a self-hosted render service (`configurators/w105-output/scripts/render-service/` in the `web-cad-test`
+project), which renders the same PDF headlessly using the three.js-based W105 configurator — no DynaMaker QFS
+subscription required. The `QFSTaskTrigger` Lambda in this project only reads the Elfsquad configuration, filters
+by model ID, deletes any stale drawing, and hands the configuration off to the render service; `QFSCallback`
+(unchanged) receives the finished PDF and uploads it to the quotation. See that project's plan/README for the
+render-service side.
 
 ## Prerequisites
 - AWS account with appropriate permissions
 - Elfsquad project with access to the "Integrations > Scripts" section.
-- DynaMaker project with the "Quotation File Service (QFS)" plugin enabled (available in the Pro Plan)
-    - For setup instructions, refer to the official integration guide: https://docs.dynamaker.com/integration-qfs
+- A deployed render-service endpoint (`RenderServiceUrl` + `RenderApiKey`, see `.env.example`) — from the
+  `web-cad-test` project's `configurators/w105-output/scripts/render-service/`.
 
 ## Setup
 
@@ -22,7 +30,7 @@ To enable this integration, deploy the Serverless Application Model (SAM) applic
 
 ## Elfsquad setup
 
-You can trigger the DynaMaker job from Elfsquad in two ways: using webhooks or custom triggers with scripts.
+You can trigger drawing generation from Elfsquad in two ways: using webhooks or custom triggers with scripts.
 
 ### Option 1: Using Elfsquad Webhooks
 
@@ -40,12 +48,12 @@ You can trigger the DynaMaker job from Elfsquad in two ways: using webhooks or c
     - Go to Integrations > Scripts and create a new script.
     - Use the contents of `elfsquad-ui-scripts/trigger.js` for this script.
     - This script gets executed when the custom trigger is called, and its sole purpose is to open a new UI dialog,
-      where the actual AJAX calls to start the DynaMaker job are made.
+      where the actual AJAX calls to start the render job are made.
 3. Create the UI dialog script:
     - In Integrations > Scripts, create another script.
     - Use the contents of `elfsquad-ui-scripts/dialog.js` for this script.
-    - This script makes the actual AJAX calls to the exposed HTTP endpoint (Lambda function) to trigger a DynaMaker job.
-    - After you deploy the project, update the constant `triggerDynamakerJobLambdaURL` in this script to use your actual
+    - This script makes the actual AJAX calls to the exposed HTTP endpoint (Lambda function) to trigger the render job.
+    - After you deploy the project, update the constant `triggerRenderJobLambdaURL` in this script to use your actual
       AWS Lambda endpoint URL (it will be printed out in the terminal after deployment).
 
 
@@ -70,11 +78,12 @@ To test locally, first copy `.env.example` to `.env.local` and fill in your cred
     3. Run `npm run invoke-local-callback`.
 
 ## AWS Lambda Endpoints
-- **QFS Task Trigger**: Triggers the specified DynaMaker job. The actual Lambda URL will be printed out in the terminal
+- **QFS Task Trigger**: Triggers the render-service job for the affected configuration(s). The actual Lambda URL will be printed out in the terminal
   once you deploy the application to the cloud. This is the URL you will use as the Callback URL for Elfsquad webhooks,
-  or as the `triggerDynamakerJobLambdaURL` variable in the second Elfsquad script `dialog.js` (see the `Elfsquad setup`
+  or as the `triggerRenderJobLambdaURL` variable in the second Elfsquad script `dialog.js` (see the `Elfsquad setup`
   section above).
     - Example: `https://abcde12345.execute-api.eu-central-1.amazonaws.com/Prod/qfs-task-trigger`
-- **QFS Callback**: This endpoint receives QFS job results and uploads the generated PDF documents to the Elfsquad
-  quotation.
+- **QFS Callback**: This endpoint receives the render-service result (the generated PDF, or a failure message) and
+  uploads the PDF to the Elfsquad quotation. Unchanged by the render-service migration — it only expects a POST with
+  the PDF as the body plus `cid`/`qid` query parameters, or `?success=false` with a JSON `message` on failure.
     - Example: `https://abcde12345.execute-api.eu-central-1.amazonaws.com/Prod/qfs-callback`

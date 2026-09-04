@@ -1,4 +1,4 @@
-const triggerDynamakerJobLambdaURL = "___ENTER_AWS_LAMBDA_URL_OF_QFSTaskTrigger_FUNCTION___"; //  example: "https://abcde12345.execute-api.eu-central-1.amazonaws.com/Prod/qfs-task-trigger"
+const triggerRenderJobLambdaURL = "___ENTER_AWS_LAMBDA_URL_OF_QFSTaskTrigger_FUNCTION___"; //  example: "https://abcde12345.execute-api.eu-central-1.amazonaws.com/Prod/qfs-task-trigger"
 
 const closeDialogAfter = 10; // seconds
 let closeDialogCountdownCounter = 0;
@@ -13,7 +13,7 @@ async function runApp() {
   await loadScriptAsync("https://unpkg.com/axios@1.12.2/dist/axios.min.js");
   try {
     const response = await axios.patch(
-      triggerDynamakerJobLambdaURL,
+      triggerRenderJobLambdaURL,
       {
         quotationId: parameters.quotationId,
       },
@@ -24,7 +24,7 @@ async function runApp() {
       },
     );
 
-    updateProgress("PDF generation triggered successfully. Once the files are ready (can take a few minutes), they" +
+    updateProgress("PDF generation triggered successfully. Once the files are ready (usually a few seconds), they" +
       " will be automatically attached to the quotation.");
     updateCountdown(getCountdownMessage(closeDialogAfter));
     document.getElementById("button_wrapper").style.display = "flex";

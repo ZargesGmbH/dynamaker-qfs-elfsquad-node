@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: DynaMaker QFS and Elfsquad integration (Node.js)
+Description: Elfsquad drawing-generation integration (Node.js) — renders via a self-hosted render-service instead of DynaMaker QFS
 
 Parameters:
   ElfsquadClientId:
@@ -9,14 +9,14 @@ Parameters:
     Type: String
   ElfsquadConfiguratorModelId:
     Type: String
-  DynamakerApplicationId:
+  RenderServiceUrl:
     Type: String
-  QfsApiKey:
+    Description: >-
+      Function URL of the web-cad-test render-service Lambda
+      (configurators/w105-output/scripts/render-service/), replaces qfs.dynamaker.com/jobs.
+  RenderApiKey:
     Type: String
-  QfsEnvironment:
-    Type: String
-  QfsTaskName:
-    Type: String
+    Description: Shared secret sent as the x-render-api-key header to RenderServiceUrl.
 
 Globals:
   Function:
@@ -31,14 +31,12 @@ Resources:
       Handler: qfs-task-trigger.handler
       Environment:
         Variables:
-          DynamakerApplicationId: !Ref DynamakerApplicationId
           ElfsquadClientId: !Ref ElfsquadClientId
           ElfsquadClientSecret: !Ref ElfsquadClientSecret
           ElfsquadConfiguratorModelId: !Ref ElfsquadConfiguratorModelId
-          QfsApiKey: !Ref QfsApiKey
           QfsCallbackFunctionUrl: !GetAtt QFSCallbackFunctionUrl.FunctionUrl
-          QfsEnvironment: !Ref QfsEnvironment
-          QfsTaskName: !Ref QfsTaskName
+          RenderServiceUrl: !Ref RenderServiceUrl
+          RenderApiKey: !Ref RenderApiKey
 
   QFSTaskTriggerFunctionUrl:
     Type: AWS::Lambda::Url

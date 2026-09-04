@@ -1,8 +1,6 @@
 import { getElfsquadApi, getAll, addQuotationLog, clearQuotationLogs } from "./services/elfsquadService.js";
 import axios from "axios";
 
-const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
-const QFS_TASK_NAME = process.env.QfsTaskName || "generate-pdf";
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED = 'quotation.configurationadded';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE = 'quotation.revisionmade';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_COPIED = 'quotation.copied';
@@ -42,7 +40,7 @@ export const handler = async (event) => {
     await clearQuotationLogs(elfsquadApi, quotationId);
   }
 
-  // Get configurationIds for which we want to trigger the QFS job
+  // Get configurationIds for which we want to trigger the render job
   let configurationIds;
   if (configurationId) {
     // Use provided configurationId if available in payload.
@@ -64,10 +62,10 @@ export const handler = async (event) => {
   let started = 0;
   let skipped = 0;
   for (const configurationId of configurationIds) {
-    const result = await triggerQfsJobForConfiguration(elfsquadApi, quotationId, configurationId);
+    const result = await triggerRenderJobForConfiguration(elfsquadApi, quotationId, configurationId);
 
     if (result.statusCode >= 400) {
-      const msg = `Failed to trigger QFS job for configuration ${configurationId}: ${result.message}`;
+      const msg = `Failed to trigger render job for configuration ${configurationId}: ${result.message}`;
       await addQuotationLog(elfsquadApi, quotationId, msg);
       errors.push(msg);
     } else if (result.configurationCode) {
@@ -86,7 +84,7 @@ export const handler = async (event) => {
   }
 
   const parts = [];
-  if (started > 0) parts.push(`${started} QFS job(s) successfully started`);
+  if (started > 0) parts.push(`${started} render job(s) successfully started`);
   if (skipped > 0) parts.push(`${skipped} configuration(s) skipped (unsupported model ID)`);
 
   return {
@@ -116,12 +114,15 @@ async function getConfigurationIdsFromQuotation(elfsquadApi, quotationId) {
 }
 
 /**
- * Trigger QFS job for a specific configuration.
+ * Trigger the render-service job for a specific configuration. The render service is a
+ * self-hosted replacement for the DynaMaker QFS cloud job: same job/callback shape
+ * (POST job payload with a callbackUrl, PDF arrives later at qfs-callback.js), but it
+ * renders the W105 three.js configurator headlessly instead of calling out to DynaMaker.
  * @param elfsquadApi
  * @param quotationId
  * @param configurationId
  */
-async function triggerQfsJobForConfiguration(elfsquadApi, quotationId, configurationId) {
+async function triggerRenderJobForConfiguration(elfsquadApi, quotationId, configurationId) {
   const configuration = await getConfigurationData(elfsquadApi, configurationId);
 
   // Check configuration model ID
@@ -137,20 +138,20 @@ async function triggerQfsJobForConfiguration(elfsquadApi, quotationId, configura
   // If a drawing already exists for this configuration, delete it first.
   await removeConfigurationFile(elfsquadApi, quotationId, `${configuration.code}.pdf`);
 
-  // Start QFS job
-  const qfsRes = await axios.post(QFS_API_JOBS_ENDPOINT, {
-    applicationId: process.env.DynamakerApplicationId,
-    task: QFS_TASK_NAME,
-    environment: process.env.QfsEnvironment,
+  // Start the render job. process.env.RenderServiceUrl points at the render-service Lambda
+  // Function URL in web-cad-test (configurators/w105-output/scripts/render-service/), which
+  // replaces qfs.dynamaker.com/jobs. No applicationId/task/environment: this service renders
+  // exactly one configurator, so there is nothing to route.
+  const renderRes = await axios.post(process.env.RenderServiceUrl, {
     configuration,
     callbackUrl: `${process.env.QfsCallbackFunctionUrl}?cid=${configurationId}&qid=${quotationId}`,
   }, {
-    headers: { 'qfs-api-key': process.env.QfsApiKey }
+    headers: { 'x-render-api-key': process.env.RenderApiKey }
   });
 
   return {
-    statusCode: qfsRes.status,
-    message: qfsRes.statusText,
+    statusCode: renderRes.status,
+    message: renderRes.statusText,
     configurationCode: configuration.code,
   };
 }

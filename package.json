@@ -1,7 +1,7 @@
 {
   "name": "dynamaker-qfs-elfsquad-integration",
   "version": "0.1.0",
-  "description": "AWS SAM app for DynaMaker QFS and Elfsquad integration",
+  "description": "AWS SAM app for Elfsquad drawing generation, using a self-hosted render service instead of DynaMaker QFS",
   "scripts": {
     "invoke-local-trigger": "sam local invoke QFSTaskTrigger --event events/trigger.json --env-vars .env.local.json --parameter-overrides $(grep -v '^#' .env.local | xargs)",
     "invoke-local-callback": "sam local invoke QFSCallback --event events/callback.json --env-vars .env.local.json --parameter-overrides $(grep -v '^#' .env.local | xargs)",
