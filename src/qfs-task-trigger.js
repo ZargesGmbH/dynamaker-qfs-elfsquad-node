@@ -1,21 +1,55 @@
 import { getElfsquadApi, getAll, addQuotationLog, clearQuotationLogs } from "./services/elfsquadService.js";
 import axios from "axios";
 
+const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
+
 // A "job service" is anything that speaks the DynaMaker QFS job protocol: it accepts
 // POST { configuration, callbackUrl, … } and later POSTs the finished PDF (or
 // ?success=false with a JSON message) to that callbackUrl — see qfs-callback.js, which
-// is job-service-agnostic and needs no changes here. DynaMaker QFS itself
-// (https://qfs.dynamaker.com/jobs) is the default/primary target this project was built
-// for, but any other service implementing the same protocol works too.
+// is job-service-agnostic. DynaMaker QFS itself (QFS_API_JOBS_ENDPOINT) is the
+// default/primary target this project is built for; any other service implementing the
+// same protocol works too.
 //
-// Each Elfsquad configurator model ID is routed to exactly one job service, configured
-// via JobServicesByModelId (JSON array, see .env.example). This lets some configurator
-// models keep using DynaMaker QFS while others are pointed at a different service —
-// migrate one model at a time, no code changes, no shared config between models.
-const JOB_SERVICES = parseJobServices(process.env.JobServicesByModelId);
+// Two ways to configure which service renders which Elfsquad configurator model:
+//
+//   DynamakerApplicationToElfsquadModelsMap — DynaMaker only, the simple case:
+//     <applicationId>:<modelId>,<modelId>;<applicationId>:<modelId>
+//     Every listed model is sent to DynaMaker QFS using the application ID it is listed
+//     under, with QfsApiKey/QfsEnvironment/QfsTaskName.
+//
+//   JobServicesByModelId — the general case: a JSON array where each entry carries its
+//     own destination, so different models can go to different services. Needed to point
+//     individual models at something other than DynaMaker QFS while the rest stay on it.
+//
+// Both may be used together; JobServicesByModelId wins for a model listed in both. See
+// .env.example for the field reference.
+const JOB_SERVICES = [
+  ...dynamakerServicesFromMap(process.env.DynamakerApplicationToElfsquadModelsMap),
+  ...parseJobServices(process.env.JobServicesByModelId),
+];
+// Later entries overwrite earlier ones for the same model ID — hence JobServicesByModelId
+// (appended last) taking precedence.
 const MODEL_ID_TO_SERVICE = new Map(
   JOB_SERVICES.flatMap((service) => service.modelIds.map((modelId) => [modelId, service])),
 );
+
+// Translates the DynaMaker-only mapping into the same job-service shape used below, so
+// there is exactly one code path dispatching jobs.
+function dynamakerServicesFromMap(raw) {
+  return (raw || "")
+    .split(";")
+    .map(entry => entry.split(":").map(part => part.trim()))
+    .filter(([applicationId, modelIds]) => applicationId && modelIds)
+    .map(([applicationId, modelIds]) => ({
+      modelIds: modelIds.split(",").map(modelId => modelId.trim()).filter(Boolean),
+      url: QFS_API_JOBS_ENDPOINT,
+      apiKey: process.env.QfsApiKey,
+      applicationId,
+      task: process.env.QfsTaskName || "generate-pdf",
+      environment: process.env.QfsEnvironment,
+    }))
+    .filter(service => service.modelIds.length > 0);
+}
 
 function parseJobServices(raw) {
   if (!raw) return [];
@@ -160,6 +194,7 @@ async function getConfigurationIdsFromQuotation(elfsquadApi, quotationId) {
 async function triggerRenderJobForConfiguration(elfsquadApi, quotationId, configurationId) {
   const configuration = await getConfigurationData(elfsquadApi, configurationId);
 
+  // Look up the job service responsible for this configuration's model ID
   const service = MODEL_ID_TO_SERVICE.get(configuration.configurationModelId);
   if (!service) {
     console.log(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} is not in the` +
@@ -173,8 +208,8 @@ async function triggerRenderJobForConfiguration(elfsquadApi, quotationId, config
   // If a drawing already exists for this configuration, delete it first.
   await removeConfigurationFile(elfsquadApi, quotationId, `${configuration.code}.pdf`);
 
-  // applicationId/task/environment are DynaMaker-specific job parameters — only sent when
-  // the service entry actually carries them, so a non-DynaMaker service just gets
+  // Start the job. applicationId/task/environment are DynaMaker-specific parameters —
+  // only sent when the service entry carries them, so a non-DynaMaker service just gets
   // { configuration, callbackUrl }.
   const payload = {
     configuration,

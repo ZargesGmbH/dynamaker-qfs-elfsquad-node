@@ -9,11 +9,28 @@ Parameters:
     Type: String
   ElfsquadClientSecret:
     Type: String
+  DynamakerApplicationToElfsquadModelsMap:
+    Type: String
+    Default: ''
+    Description: >-
+      DynaMaker-only routing: <applicationId>:<modelId>,<modelId>;… — these models are
+      sent to DynaMaker QFS with QfsApiKey/QfsEnvironment/QfsTaskName.
+  QfsApiKey:
+    Type: String
+    Default: ''
+  QfsEnvironment:
+    Type: String
+    Default: ''
+  QfsTaskName:
+    Type: String
+    Default: ''
   JobServicesByModelId:
     Type: String
+    Default: ''
     Description: >-
-      JSON array routing each supported Elfsquad configurator model ID to the job
-      service that renders it. See .env.example for the shape.
+      General routing: JSON array pointing individual Elfsquad configurator model IDs at
+      their own job service (DynaMaker QFS or any compatible service). Takes precedence
+      over DynamakerApplicationToElfsquadModelsMap. See .env.example for the shape.
 
 Globals:
   Function:
@@ -30,6 +47,10 @@ Resources:
         Variables:
           ElfsquadClientId: !Ref ElfsquadClientId
           ElfsquadClientSecret: !Ref ElfsquadClientSecret
+          DynamakerApplicationToElfsquadModelsMap: !Ref DynamakerApplicationToElfsquadModelsMap
+          QfsApiKey: !Ref QfsApiKey
+          QfsEnvironment: !Ref QfsEnvironment
+          QfsTaskName: !Ref QfsTaskName
           QfsCallbackFunctionUrl: !GetAtt QFSCallbackFunctionUrl.FunctionUrl
           JobServicesByModelId: !Ref JobServicesByModelId
 

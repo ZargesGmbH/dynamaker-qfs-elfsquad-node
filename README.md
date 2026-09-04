@@ -66,13 +66,23 @@ You can trigger drawing generation from Elfsquad in two ways: using webhooks or 
 ## Environment Variables
 Configure all required variables in your `.env.production` file. Refer to `.env.example` for details and example values.
 
-`JobServicesByModelId` is a JSON array that routes each supported Elfsquad configurator model ID to the job service
-that renders it. Only configurations whose model ID is listed are dispatched; all others are skipped. Fields per
-entry:
+Which service renders which configurator model is configured in one of two ways — both may be used together, and
+only configurations whose model ID is listed anywhere are dispatched (all others are skipped).
+
+**`DynamakerApplicationToElfsquadModelsMap` — DynaMaker only, the simple case.** Maps each DynaMaker application to
+the Elfsquad configurator model IDs it renders, as a semicolon-separated list of `<applicationId>:<modelId>,<modelId>`
+entries (without spaces). An application may list several comma-separated model IDs. These models are sent to
+DynaMaker QFS using the application ID they are listed under, together with `QfsApiKey`, `QfsEnvironment` and
+`QfsTaskName`.
+
+**`JobServicesByModelId` — the general case.** A JSON array in which each entry carries its own destination, so
+different configurator models can be routed to different job services. Use it to point individual models at a service
+other than DynaMaker QFS while the rest stay on it. It takes precedence for any model ID also listed in the map above.
+Fields per entry:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `modelIds` | yes | Elfsquad configurator model IDs handled by this service. Each model ID must appear in only one entry. |
+| `modelIds` | yes | Elfsquad configurator model IDs handled by this service. |
 | `url` | yes | Job endpoint to POST to, e.g. `https://qfs.dynamaker.com/jobs`. |
 | `apiKey` | yes | Shared secret sent in the auth header. |
 | `apiKeyHeader` | no | Name of the auth header. Defaults to `qfs-api-key` (what DynaMaker QFS expects). |
@@ -81,8 +91,8 @@ entry:
 | `environment` | no | DynaMaker environment, e.g. `test` or `production`. |
 
 Entries without `applicationId` receive a minimal `{ configuration, callbackUrl }` job payload — enough for any
-service implementing the protocol. A malformed value fails fast at Lambda init with an explicit error rather than
-silently skipping configurations.
+service implementing the protocol. A malformed `JobServicesByModelId` fails fast at Lambda init with an explicit
+error rather than silently skipping configurations.
 
 ## Deployment
 Deploy the application using `npm run deploy`.
