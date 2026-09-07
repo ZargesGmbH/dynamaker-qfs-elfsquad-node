@@ -1,54 +1,31 @@
 import { getElfsquadApi, getAll, addQuotationLog, clearQuotationLogs } from "./services/elfsquadService.js";
 import axios from "axios";
 
-const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
-
 // A "job service" is anything that speaks the DynaMaker QFS job protocol: it accepts
 // POST { configuration, callbackUrl, … } and later POSTs the finished PDF (or
 // ?success=false with a JSON message) to that callbackUrl — see qfs-callback.js, which
-// is job-service-agnostic. DynaMaker QFS itself (QFS_API_JOBS_ENDPOINT) is the
-// default/primary target this project is built for; any other service implementing the
-// same protocol works too.
+// is job-service-agnostic. DynaMaker QFS (https://qfs.dynamaker.com/jobs) is one such
+// service; any other implementation of the same protocol works the same way.
 //
-// Two ways to configure which service renders which Elfsquad configurator model:
-//
-//   DynamakerApplicationToElfsquadModelsMap — DynaMaker only, the simple case:
-//     <applicationId>:<modelId>,<modelId>;<applicationId>:<modelId>
-//     Every listed model is sent to DynaMaker QFS using the application ID it is listed
-//     under, with QfsApiKey/QfsEnvironment/QfsTaskName.
-//
-//   JobServicesByModelId — the general case: a JSON array where each entry carries its
-//     own destination, so different models can go to different services. Needed to point
-//     individual models at something other than DynaMaker QFS while the rest stay on it.
-//
-// Both may be used together; JobServicesByModelId wins for a model listed in both. See
-// .env.example for the field reference.
-const JOB_SERVICES = [
-  ...dynamakerServicesFromMap(process.env.DynamakerApplicationToElfsquadModelsMap),
-  ...parseJobServices(process.env.JobServicesByModelId),
-];
-// Later entries overwrite earlier ones for the same model ID — hence JobServicesByModelId
-// (appended last) taking precedence.
-const MODEL_ID_TO_SERVICE = new Map(
-  JOB_SERVICES.flatMap((service) => service.modelIds.map((modelId) => [modelId, service])),
-);
+// JobServicesByModelId configures which service renders which Elfsquad configurator
+// model: a JSON array in which every entry carries its own destination, so different
+// models can be routed to different services. Configurations whose model ID is not
+// listed are skipped. See .env.example for the field reference.
+const MODEL_ID_TO_SERVICE = buildServicesByModelId(process.env.JobServicesByModelId);
 
-// Translates the DynaMaker-only mapping into the same job-service shape used below, so
-// there is exactly one code path dispatching jobs.
-function dynamakerServicesFromMap(raw) {
-  return (raw || "")
-    .split(";")
-    .map(entry => entry.split(":").map(part => part.trim()))
-    .filter(([applicationId, modelIds]) => applicationId && modelIds)
-    .map(([applicationId, modelIds]) => ({
-      modelIds: modelIds.split(",").map(modelId => modelId.trim()).filter(Boolean),
-      url: QFS_API_JOBS_ENDPOINT,
-      apiKey: process.env.QfsApiKey,
-      applicationId,
-      task: process.env.QfsTaskName || "generate-pdf",
-      environment: process.env.QfsEnvironment,
-    }))
-    .filter(service => service.modelIds.length > 0);
+function buildServicesByModelId(raw) {
+  const servicesByModelId = new Map();
+  for (const service of parseJobServices(raw)) {
+    for (const modelId of service.modelIds) {
+      // Two entries claiming the same model would make the destination depend on array
+      // order, so reject it instead of silently picking one.
+      if (servicesByModelId.has(modelId)) {
+        throw new Error(`JobServicesByModelId lists model ID ${modelId} more than once.`);
+      }
+      servicesByModelId.set(modelId, service);
+    }
+  }
+  return servicesByModelId;
 }
 
 function parseJobServices(raw) {
@@ -185,8 +162,8 @@ async function getConfigurationIdsFromQuotation(elfsquadApi, quotationId) {
 
 /**
  * Trigger the job service responsible for a specific configuration's model ID (see
- * JOB_SERVICES / MODEL_ID_TO_SERVICE above). Same job/callback shape regardless of which
- * service is targeted — DynaMaker QFS or any other compatible service.
+ * MODEL_ID_TO_SERVICE above). Same job/callback shape regardless of which service is
+ * targeted — DynaMaker QFS or any other compatible service.
  * @param elfsquadApi
  * @param quotationId
  * @param configurationId

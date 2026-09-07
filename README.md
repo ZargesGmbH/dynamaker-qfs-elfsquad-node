@@ -10,12 +10,10 @@ receives the finished PDF (or an error) from whichever service handled the job a
 
 A job service is anything that speaks the DynaMaker "Quotation File Service" (QFS) job protocol: accept
 `POST { configuration, callbackUrl, … }` and later `POST` the finished PDF — or `?success=false` with a JSON error —
-to that `callbackUrl`. DynaMaker QFS itself (`https://qfs.dynamaker.com/jobs`) is the default/primary target this
-project was built for, and is what most configurator models will keep using. `JobServicesByModelId` (see
-`.env.example`) additionally lets you point **individual configurator models** at any other compatible job service,
-without touching any code and independently of what the other models use. This makes it possible to route one
-configurator to a different service while the rest keep using DynaMaker QFS.
-`QFSCallback` doesn't care which service a job came from and needs no changes either way.
+to that `callbackUrl`. DynaMaker QFS itself (`https://qfs.dynamaker.com/jobs`) is one such service; any other
+implementation of the same protocol works the same way. Which service handles which configurator model is configured
+entirely in `JobServicesByModelId` (see `.env.example`), so models can be routed to different services without
+touching any code. `QFSCallback` doesn't care which service a job came from and needs no changes either way.
 
 ## Prerequisites
 - AWS account with appropriate permissions
@@ -66,19 +64,10 @@ You can trigger drawing generation from Elfsquad in two ways: using webhooks or 
 ## Environment Variables
 Configure all required variables in your `.env.production` file. Refer to `.env.example` for details and example values.
 
-Which service renders which configurator model is configured in one of two ways — both may be used together, and
-only configurations whose model ID is listed anywhere are dispatched (all others are skipped).
-
-**`DynamakerApplicationToElfsquadModelsMap` — DynaMaker only, the simple case.** Maps each DynaMaker application to
-the Elfsquad configurator model IDs it renders, as a semicolon-separated list of `<applicationId>:<modelId>,<modelId>`
-entries (without spaces). An application may list several comma-separated model IDs. These models are sent to
-DynaMaker QFS using the application ID they are listed under, together with `QfsApiKey`, `QfsEnvironment` and
-`QfsTaskName`.
-
-**`JobServicesByModelId` — the general case.** A JSON array in which each entry carries its own destination, so
-different configurator models can be routed to different job services. Use it to point individual models at a service
-other than DynaMaker QFS while the rest stay on it. It takes precedence for any model ID also listed in the map above.
-Fields per entry:
+**`JobServicesByModelId`** determines which service renders which configurator model: a JSON array in which each
+entry carries its own destination. Only configurations whose model ID is listed are dispatched; all others are
+skipped. Each model ID may appear only once across all entries — a duplicate is rejected at Lambda init rather than
+resolved by array order. Fields per entry:
 
 | Field | Required | Meaning |
 |---|---|---|
@@ -93,6 +82,17 @@ Fields per entry:
 Entries without `applicationId` receive a minimal `{ configuration, callbackUrl }` job payload — enough for any
 service implementing the protocol. A malformed `JobServicesByModelId` fails fast at Lambda init with an explicit
 error rather than silently skipping configurations.
+
+Example — two models rendered by two DynaMaker applications, a third by another service (written as one line in
+`.env.production`, without spaces or surrounding quotes):
+
+```json
+[
+  {"modelIds":["11111111-…"],"url":"https://qfs.dynamaker.com/jobs","apiKey":"…","applicationId":"AbCdEfGhIjK","task":"generate-pdf","environment":"production"},
+  {"modelIds":["22222222-…"],"url":"https://qfs.dynamaker.com/jobs","apiKey":"…","applicationId":"LmNoPqRsTuV","task":"generate-pdf","environment":"production"},
+  {"modelIds":["33333333-…"],"url":"https://your-render-service.example/jobs","apiKeyHeader":"x-api-key","apiKey":"…"}
+]
+```
 
 ## Deployment
 Deploy the application using `npm run deploy`.
