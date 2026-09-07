@@ -97,7 +97,12 @@ error rather than silently skipping configurations.
 ## Deployment
 Deploy the application using `npm run deploy`.
 
-This command executes `sam deploy` with parameters from your `.env.production` file.
+This command executes `sam deploy` with parameters from your `.env.production` file, via
+`scripts/sam-with-env.sh`. That wrapper exists because SAM's `--parameter-overrides` shorthand truncates a value at
+its first comma once the value contains double quotes, which would reduce a `JobServicesByModelId` JSON array to the
+fragment `[{` and break the Lambda at init. The wrapper passes each value wrapped in the literal single quotes SAM
+needs, so write plain unquoted values in `.env.production`. A value must not itself contain a single quote — SAM
+cannot receive one, and the wrapper aborts instead of deploying a mangled value.
 
 ## Local Lambda Function Testing
 To test locally, first copy `.env.example` to `.env.local` and fill in your credentials.
