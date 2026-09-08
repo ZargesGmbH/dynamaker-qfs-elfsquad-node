@@ -9,11 +9,16 @@ configurator model ID, deletes any stale drawing, and hands the configuration of
 receives the finished PDF (or an error) from whichever service handled the job and uploads it to the quotation.
 
 A job service is anything that speaks the DynaMaker "Quotation File Service" (QFS) job protocol: accept
-`POST { configuration, callbackUrl, … }` and later `POST` the finished PDF — or `?success=false` with a JSON error —
-to that `callbackUrl`. DynaMaker QFS itself (`https://qfs.dynamaker.com/jobs`) is one such service; any other
+`POST { configuration, callbackUrl, language, … }` and later `POST` the finished PDF — or `?success=false` with a JSON
+error — to that `callbackUrl`. DynaMaker QFS itself (`https://qfs.dynamaker.com/jobs`) is one such service; any other
 implementation of the same protocol works the same way. Which service handles which configurator model is configured
 entirely in `JobServicesByModelId` (see `.env.example`), so models can be routed to different services without
 touching any code. `QFSCallback` doesn't care which service a job came from and needs no changes either way.
+
+`language` is the quotation's language ("Angebotssprache"), passed through verbatim from Elfsquad's
+`Quotation.languageIso` as a 2-letter ISO 639-1 code such as `de`, so the drawing can be rendered in the customer's
+language. It is omitted when the quotation has no language set; a service that receives no `language` should fall back
+to its own default. Compare it case-insensitively — Elfsquad is not consistent about casing across its entities.
 
 ## Prerequisites
 - AWS account with appropriate permissions
@@ -79,7 +84,7 @@ resolved by array order. Fields per entry:
 | `task` | no | DynaMaker task name; defaults to `generate-pdf` when `applicationId` is set. |
 | `environment` | no | DynaMaker environment, e.g. `test` or `production`. |
 
-Entries without `applicationId` receive a minimal `{ configuration, callbackUrl }` job payload — enough for any
+Entries without `applicationId` receive a minimal `{ configuration, callbackUrl, language }` job payload — enough for any
 service implementing the protocol. A malformed `JobServicesByModelId` fails fast at Lambda init with an explicit
 error rather than silently skipping configurations.
 
