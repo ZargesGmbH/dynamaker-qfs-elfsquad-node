@@ -1,11 +1,17 @@
-import { getElfsquadApi, getAll, addQuotationLog, clearQuotationLogs } from "./services/elfsquadService.js";
+import { getElfsquadApi, getAll, addQuotationLog, clearQuotationLogs, getQuotationLanguage } from "./services/elfsquadService.js";
 import axios from "axios";
 
 // A "job service" is anything that speaks the DynaMaker QFS job protocol: it accepts
-// POST { configuration, callbackUrl, … } and later POSTs the finished PDF (or
+// POST { configuration, callbackUrl, language, … } and later POSTs the finished PDF (or
 // ?success=false with a JSON message) to that callbackUrl — see qfs-callback.js, which
 // is job-service-agnostic. DynaMaker QFS (https://qfs.dynamaker.com/jobs) is one such
 // service; any other implementation of the same protocol works the same way.
+//
+// `language` is the quotation's language ("Angebotssprache"), passed through verbatim from
+// Elfsquad's Quotation.languageIso as a 2-letter ISO 639-1 code such as "de", so the service
+// can render the drawing in the customer's language. It is omitted when the quotation has
+// none; a service receiving no language should fall back to its own default. Compare it
+// case-insensitively — Elfsquad is not consistent about casing across its entities.
 //
 // JobServicesByModelId configures which service renders which Elfsquad configurator
 // model: a JSON array in which every entry carries its own destination, so different
@@ -105,11 +111,30 @@ export const handler = async (event) => {
     configurationIds = await getConfigurationIdsFromQuotation(elfsquadApi, quotationId);
   }
 
+  // The quotation's language ("Angebotssprache"), fetched once: it belongs to the quotation,
+  // not to the individual configuration. A language we cannot determine must never block PDF
+  // generation — the job then goes out without it and the service uses its own default.
+  let language;
+  try {
+    language = await getQuotationLanguage(elfsquadApi, quotationId);
+    if (!language) {
+      console.warn(`Quotation ${quotationId} has no languageIso; sending the job without a language.`);
+    }
+  } catch (error) {
+    console.error(`Failed to read the language of quotation ${quotationId}:`, error);
+    try {
+      await addQuotationLog(elfsquadApi, quotationId,
+        "Could not read the quotation language; the drawing is rendered in the job service's default language.");
+    } catch (logError) {
+      console.error('Could not write the language warning to the quotation log:', logError);
+    }
+  }
+
   const errors = [];
   let started = 0;
   let skipped = 0;
   for (const configurationId of configurationIds) {
-    const result = await triggerRenderJobForConfiguration(elfsquadApi, quotationId, configurationId);
+    const result = await triggerRenderJobForConfiguration(elfsquadApi, quotationId, configurationId, language);
 
     if (result.statusCode >= 400) {
       const msg = `Failed to trigger render job for configuration ${configurationId}: ${result.message}`;
@@ -167,8 +192,9 @@ async function getConfigurationIdsFromQuotation(elfsquadApi, quotationId) {
  * @param elfsquadApi
  * @param quotationId
  * @param configurationId
+ * @param language Quotation language, e.g. "de"; omitted from the payload when falsy.
  */
-async function triggerRenderJobForConfiguration(elfsquadApi, quotationId, configurationId) {
+async function triggerRenderJobForConfiguration(elfsquadApi, quotationId, configurationId, language) {
   const configuration = await getConfigurationData(elfsquadApi, configurationId);
 
   // Look up the job service responsible for this configuration's model ID
@@ -185,13 +211,14 @@ async function triggerRenderJobForConfiguration(elfsquadApi, quotationId, config
   // If a drawing already exists for this configuration, delete it first.
   await removeConfigurationFile(elfsquadApi, quotationId, `${configuration.code}.pdf`);
 
-  // Start the job. applicationId/task/environment are DynaMaker-specific parameters —
-  // only sent when the service entry carries them, so a non-DynaMaker service just gets
-  // { configuration, callbackUrl }.
+  // Start the job. `language` is only present when the quotation has one. applicationId/task/
+  // environment are DynaMaker-specific parameters — only sent when the service entry carries
+  // them, so a non-DynaMaker service just gets { configuration, callbackUrl, language }.
   const payload = {
     configuration,
     callbackUrl: `${process.env.QfsCallbackFunctionUrl}?cid=${configurationId}&qid=${quotationId}`,
   };
+  if (language) payload.language = language;
   if (service.applicationId) {
     payload.applicationId = service.applicationId;
     payload.task = service.task || 'generate-pdf';

@@ -30,6 +30,17 @@ export async function getAll(elfsquadApi, url) {
   return result;
 }
 
+/**
+ * The quotation's language ("Angebotssprache") as Elfsquad stores it: a 2-letter ISO 639-1
+ * code such as "de". Returned verbatim, so there is exactly one spelling of the language in
+ * the system. Undefined when the quotation has none. Throws on transport errors; the caller
+ * decides whether that is fatal.
+ */
+export async function getQuotationLanguage(elfsquadApi, quotationId) {
+  const response = await elfsquadApi.get(`/data/1/Quotations/${quotationId}?\$select=languageIso`);
+  return response.data?.languageIso || undefined;
+}
+
 export async function clearQuotationLogs(elfsquadApi, quotationId) {
   await forceRefreshElfsquadUI(elfsquadApi, quotationId, "", true);
 }
