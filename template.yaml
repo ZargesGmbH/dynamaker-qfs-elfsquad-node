@@ -1,20 +1,21 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: DynaMaker QFS and Elfsquad integration (Node.js)
+Description: >-
+  Elfsquad drawing-generation integration (Node.js) — triggers a job service (DynaMaker
+  QFS or any other compatible service) per Elfsquad configurator model ID.
 
 Parameters:
   ElfsquadClientId:
     Type: String
   ElfsquadClientSecret:
     Type: String
-  DynamakerApplicationToElfsquadModelsMap:
+  JobServicesByModelId:
     Type: String
-  QfsApiKey:
-    Type: String
-  QfsEnvironment:
-    Type: String
-  QfsTaskName:
-    Type: String
+    Description: >-
+      JSON array pointing each Elfsquad configurator model ID at the job service that
+      renders it (DynaMaker QFS or any compatible service). Every entry carries its own
+      url/apiKey, plus applicationId/task/environment for DynaMaker entries. See
+      .env.example for the shape.
 
 Globals:
   Function:
@@ -31,11 +32,8 @@ Resources:
         Variables:
           ElfsquadClientId: !Ref ElfsquadClientId
           ElfsquadClientSecret: !Ref ElfsquadClientSecret
-          DynamakerApplicationToElfsquadModelsMap: !Ref DynamakerApplicationToElfsquadModelsMap
-          QfsApiKey: !Ref QfsApiKey
           QfsCallbackFunctionUrl: !GetAtt QFSCallbackFunctionUrl.FunctionUrl
-          QfsEnvironment: !Ref QfsEnvironment
-          QfsTaskName: !Ref QfsTaskName
+          JobServicesByModelId: !Ref JobServicesByModelId
 
   QFSTaskTriggerFunctionUrl:
     Type: AWS::Lambda::Url

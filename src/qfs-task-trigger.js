@@ -1,22 +1,59 @@
-import { getElfsquadApi, getAll, addQuotationLog, clearQuotationLogs } from "./services/elfsquadService.js";
+import { getElfsquadApi, getAll, addQuotationLog, clearQuotationLogs, getQuotationLanguage } from "./services/elfsquadService.js";
 import axios from "axios";
 
-const QFS_API_JOBS_ENDPOINT = "https://qfs.dynamaker.com/jobs";
-const QFS_TASK_NAME = process.env.QfsTaskName || "generate-pdf";
-// Maps each supported Elfsquad configurator model ID to the DynaMaker application that renders it.
-// Configured per application: <dynamakerApplicationId>:<modelId>,<modelId>, entries separated by
-// semicolons. An application may list several model IDs.
-const MODEL_ID_TO_APPLICATION_ID = new Map(
-  (process.env.DynamakerApplicationToElfsquadModelsMap || "")
-    .split(";")
-    .map(entry => entry.split(":").map(part => part.trim()))
-    .filter(([applicationId, modelIds]) => applicationId && modelIds)
-    .flatMap(([applicationId, modelIds]) => modelIds
-      .split(",")
-      .map(modelId => modelId.trim())
-      .filter(Boolean)
-      .map(modelId => [modelId, applicationId]))
-);
+// A "job service" is anything that speaks the DynaMaker QFS job protocol: it accepts
+// POST { configuration, callbackUrl, language, … } and later POSTs the finished PDF (or
+// ?success=false with a JSON message) to that callbackUrl — see qfs-callback.js, which
+// is job-service-agnostic. DynaMaker QFS (https://qfs.dynamaker.com/jobs) is one such
+// service; any other implementation of the same protocol works the same way.
+//
+// `language` is the quotation's language ("Angebotssprache"), passed through verbatim from
+// Elfsquad's Quotation.languageIso as a 2-letter ISO 639-1 code such as "de", so the service
+// can render the drawing in the customer's language. It is omitted when the quotation has
+// none; a service receiving no language should fall back to its own default. Compare it
+// case-insensitively — Elfsquad is not consistent about casing across its entities.
+//
+// JobServicesByModelId configures which service renders which Elfsquad configurator
+// model: a JSON array in which every entry carries its own destination, so different
+// models can be routed to different services. Configurations whose model ID is not
+// listed are skipped. See .env.example for the field reference.
+const MODEL_ID_TO_SERVICE = buildServicesByModelId(process.env.JobServicesByModelId);
+
+function buildServicesByModelId(raw) {
+  const servicesByModelId = new Map();
+  for (const service of parseJobServices(raw)) {
+    for (const modelId of service.modelIds) {
+      // Two entries claiming the same model would make the destination depend on array
+      // order, so reject it instead of silently picking one.
+      if (servicesByModelId.has(modelId)) {
+        throw new Error(`JobServicesByModelId lists model ID ${modelId} more than once.`);
+      }
+      servicesByModelId.set(modelId, service);
+    }
+  }
+  return servicesByModelId;
+}
+
+function parseJobServices(raw) {
+  if (!raw) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`JobServicesByModelId is not valid JSON: ${error.message}`);
+  }
+  if (!Array.isArray(parsed)) throw new Error('JobServicesByModelId must be a JSON array');
+  for (const service of parsed) {
+    if (!service || typeof service !== 'object' || !Array.isArray(service.modelIds) || service.modelIds.length === 0) {
+      throw new Error(`JobServicesByModelId entry missing a non-empty modelIds array: ${JSON.stringify(service)}`);
+    }
+    if (!service.url || !service.apiKey) {
+      throw new Error(`JobServicesByModelId entry for ${service.modelIds.join(', ')} is missing url or apiKey.`);
+    }
+  }
+  return parsed;
+}
+
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_CONFIGURATION_ADDED = 'quotation.configurationadded';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_REVISION_MADE = 'quotation.revisionmade';
 const ELFSQUAD_WEBHOOK_TOPIC_QUOTATION_COPIED = 'quotation.copied';
@@ -56,7 +93,7 @@ export const handler = async (event) => {
     await clearQuotationLogs(elfsquadApi, quotationId);
   }
 
-  // Get configurationIds for which we want to trigger the QFS job
+  // Get configurationIds for which we want to trigger the render job
   let configurationIds;
   if (configurationId) {
     // Use provided configurationId if available in payload.
@@ -74,14 +111,33 @@ export const handler = async (event) => {
     configurationIds = await getConfigurationIdsFromQuotation(elfsquadApi, quotationId);
   }
 
+  // The quotation's language ("Angebotssprache"), fetched once: it belongs to the quotation,
+  // not to the individual configuration. A language we cannot determine must never block PDF
+  // generation — the job then goes out without it and the service uses its own default.
+  let language;
+  try {
+    language = await getQuotationLanguage(elfsquadApi, quotationId);
+    if (!language) {
+      console.warn(`Quotation ${quotationId} has no languageIso; sending the job without a language.`);
+    }
+  } catch (error) {
+    console.error(`Failed to read the language of quotation ${quotationId}:`, error);
+    try {
+      await addQuotationLog(elfsquadApi, quotationId,
+        "Could not read the quotation language; the drawing is rendered in the job service's default language.");
+    } catch (logError) {
+      console.error('Could not write the language warning to the quotation log:', logError);
+    }
+  }
+
   const errors = [];
   let started = 0;
   let skipped = 0;
   for (const configurationId of configurationIds) {
-    const result = await triggerQfsJobForConfiguration(elfsquadApi, quotationId, configurationId);
+    const result = await triggerRenderJobForConfiguration(elfsquadApi, quotationId, configurationId, language);
 
     if (result.statusCode >= 400) {
-      const msg = `Failed to trigger QFS job for configuration ${configurationId}: ${result.message}`;
+      const msg = `Failed to trigger render job for configuration ${configurationId}: ${result.message}`;
       await addQuotationLog(elfsquadApi, quotationId, msg);
       errors.push(msg);
     } else if (result.configurationCode) {
@@ -100,7 +156,7 @@ export const handler = async (event) => {
   }
 
   const parts = [];
-  if (started > 0) parts.push(`${started} QFS job(s) successfully started`);
+  if (started > 0) parts.push(`${started} render job(s) successfully started`);
   if (skipped > 0) parts.push(`${skipped} configuration(s) skipped (unsupported model ID)`);
 
   return {
@@ -130,19 +186,22 @@ async function getConfigurationIdsFromQuotation(elfsquadApi, quotationId) {
 }
 
 /**
- * Trigger QFS job for a specific configuration.
+ * Trigger the job service responsible for a specific configuration's model ID (see
+ * MODEL_ID_TO_SERVICE above). Same job/callback shape regardless of which service is
+ * targeted — DynaMaker QFS or any other compatible service.
  * @param elfsquadApi
  * @param quotationId
  * @param configurationId
+ * @param language Quotation language, e.g. "de"; omitted from the payload when falsy.
  */
-async function triggerQfsJobForConfiguration(elfsquadApi, quotationId, configurationId) {
+async function triggerRenderJobForConfiguration(elfsquadApi, quotationId, configurationId, language) {
   const configuration = await getConfigurationData(elfsquadApi, configurationId);
 
-  // Look up the DynaMaker application responsible for this configuration's model ID
-  const applicationId = MODEL_ID_TO_APPLICATION_ID.get(configuration.configurationModelId);
-  if (!applicationId) {
+  // Look up the job service responsible for this configuration's model ID
+  const service = MODEL_ID_TO_SERVICE.get(configuration.configurationModelId);
+  if (!service) {
     console.log(`Configuration ${configurationId} with model ID ${configuration.configurationModelId} is not in the` +
-      ` list of supported model IDs (${[...MODEL_ID_TO_APPLICATION_ID.keys()].join(", ") || "none configured"}). Skipping.`);
+      ` list of supported model IDs (${[...MODEL_ID_TO_SERVICE.keys()].join(", ") || "none configured"}). Skipping.`);
     return {
       statusCode: 200,
       message: "Model ID not supported. Skipped."
@@ -152,20 +211,27 @@ async function triggerQfsJobForConfiguration(elfsquadApi, quotationId, configura
   // If a drawing already exists for this configuration, delete it first.
   await removeConfigurationFile(elfsquadApi, quotationId, `${configuration.code}.pdf`);
 
-  // Start QFS job
-  const qfsRes = await axios.post(QFS_API_JOBS_ENDPOINT, {
-    applicationId,
-    task: QFS_TASK_NAME,
-    environment: process.env.QfsEnvironment,
+  // Start the job. `language` is only present when the quotation has one. applicationId/task/
+  // environment are DynaMaker-specific parameters — only sent when the service entry carries
+  // them, so a non-DynaMaker service just gets { configuration, callbackUrl, language }.
+  const payload = {
     configuration,
     callbackUrl: `${process.env.QfsCallbackFunctionUrl}?cid=${configurationId}&qid=${quotationId}`,
-  }, {
-    headers: { 'qfs-api-key': process.env.QfsApiKey }
+  };
+  if (language) payload.language = language;
+  if (service.applicationId) {
+    payload.applicationId = service.applicationId;
+    payload.task = service.task || 'generate-pdf';
+  }
+  if (service.environment) payload.environment = service.environment;
+
+  const jobRes = await axios.post(service.url, payload, {
+    headers: { [service.apiKeyHeader || 'qfs-api-key']: service.apiKey },
   });
 
   return {
-    statusCode: qfsRes.status,
-    message: qfsRes.statusText,
+    statusCode: jobRes.status,
+    message: jobRes.statusText,
     configurationCode: configuration.code,
   };
 }

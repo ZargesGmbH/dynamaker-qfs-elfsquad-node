@@ -1,14 +1,31 @@
-# DynaMaker QFS and Elfsquad integration AWS SAM App
+# Elfsquad drawing-generation integration AWS SAM App
 
-This Node.js and AWS SAM-based project provides an integration between Elfsquad and DynaMaker QFS. It allows you to
-generate DynaMaker quotation files, such as drawings, based on Elfsquad webhooks or by using buttons in the Elfsquad UI.
-Generated files are automatically stored in the corresponding Elfsquad quotation.
+This Node.js and AWS SAM-based project triggers PDF drawing generation for Elfsquad quotations, based on Elfsquad
+webhooks or by using buttons in the Elfsquad UI. Generated files are automatically stored in the corresponding
+Elfsquad quotation.
+
+The `QFSTaskTrigger` Lambda reads the Elfsquad configuration, looks up which **job service** is responsible for its
+configurator model ID, deletes any stale drawing, and hands the configuration off to that service; `QFSCallback`
+receives the finished PDF (or an error) from whichever service handled the job and uploads it to the quotation.
+
+A job service is anything that speaks the DynaMaker "Quotation File Service" (QFS) job protocol: accept
+`POST { configuration, callbackUrl, language, … }` and later `POST` the finished PDF — or `?success=false` with a JSON
+error — to that `callbackUrl`. DynaMaker QFS itself (`https://qfs.dynamaker.com/jobs`) is one such service; any other
+implementation of the same protocol works the same way. Which service handles which configurator model is configured
+entirely in `JobServicesByModelId` (see `.env.example`), so models can be routed to different services without
+touching any code. `QFSCallback` doesn't care which service a job came from and needs no changes either way.
+
+`language` is the quotation's language ("Angebotssprache"), passed through verbatim from Elfsquad's
+`Quotation.languageIso` as a 2-letter ISO 639-1 code such as `de`, so the drawing can be rendered in the customer's
+language. It is omitted when the quotation has no language set; a service that receives no `language` should fall back
+to its own default. Compare it case-insensitively — Elfsquad is not consistent about casing across its entities.
 
 ## Prerequisites
 - AWS account with appropriate permissions
 - Elfsquad project with access to the "Integrations > Scripts" section.
-- DynaMaker project with the "Quotation File Service (QFS)" plugin enabled (available in the Pro Plan)
-    - For setup instructions, refer to the official integration guide: https://docs.dynamaker.com/integration-qfs
+- At least one job service to route configurator models to (see `JobServicesByModelId` in `.env.example`) — typically
+  a DynaMaker account with the "Quotation File Service (QFS)" plugin enabled (Pro Plan; see
+  https://docs.dynamaker.com/integration-qfs), optionally alongside other compatible services for specific models.
 
 ## Setup
 
@@ -22,7 +39,7 @@ To enable this integration, deploy the Serverless Application Model (SAM) applic
 
 ## Elfsquad setup
 
-You can trigger the DynaMaker job from Elfsquad in two ways: using webhooks or custom triggers with scripts.
+You can trigger drawing generation from Elfsquad in two ways: using webhooks or custom triggers with scripts.
 
 ### Option 1: Using Elfsquad Webhooks
 
@@ -40,27 +57,57 @@ You can trigger the DynaMaker job from Elfsquad in two ways: using webhooks or c
     - Go to Integrations > Scripts and create a new script.
     - Use the contents of `elfsquad-ui-scripts/trigger.js` for this script.
     - This script gets executed when the custom trigger is called, and its sole purpose is to open a new UI dialog,
-      where the actual AJAX calls to start the DynaMaker job are made.
+      where the actual AJAX calls to start the render job are made.
 3. Create the UI dialog script:
     - In Integrations > Scripts, create another script.
     - Use the contents of `elfsquad-ui-scripts/dialog.js` for this script.
-    - This script makes the actual AJAX calls to the exposed HTTP endpoint (Lambda function) to trigger a DynaMaker job.
-    - After you deploy the project, update the constant `triggerDynamakerJobLambdaURL` in this script to use your actual
+    - This script makes the actual AJAX calls to the exposed HTTP endpoint (Lambda function) to trigger the render job.
+    - After you deploy the project, update the constant `triggerRenderJobLambdaURL` in this script to use your actual
       AWS Lambda endpoint URL (it will be printed out in the terminal after deployment).
 
 
 ## Environment Variables
 Configure all required variables in your `.env.production` file. Refer to `.env.example` for details and example values.
 
-`DynamakerApplicationToElfsquadModelsMap` maps each DynaMaker application to the Elfsquad configurator model IDs it
-renders, as a semicolon-separated list of `<applicationId>:<modelId>,<modelId>` entries (without spaces). An
-application may list several comma-separated model IDs. Only configurations belonging to one of the listed models are
-sent to QFS (using the application ID they are listed under); all others are skipped.
+**`JobServicesByModelId`** determines which service renders which configurator model: a JSON array in which each
+entry carries its own destination. Only configurations whose model ID is listed are dispatched; all others are
+skipped. Each model ID may appear only once across all entries — a duplicate is rejected at Lambda init rather than
+resolved by array order. Fields per entry:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `modelIds` | yes | Elfsquad configurator model IDs handled by this service. |
+| `url` | yes | Job endpoint to POST to, e.g. `https://qfs.dynamaker.com/jobs`. |
+| `apiKey` | yes | Shared secret sent in the auth header. |
+| `apiKeyHeader` | no | Name of the auth header. Defaults to `qfs-api-key` (what DynaMaker QFS expects). |
+| `applicationId` | DynaMaker only | DynaMaker application that renders these models. Presence of this field is what makes the job payload DynaMaker-shaped. |
+| `task` | no | DynaMaker task name; defaults to `generate-pdf` when `applicationId` is set. |
+| `environment` | no | DynaMaker environment, e.g. `test` or `production`. |
+
+Entries without `applicationId` receive a minimal `{ configuration, callbackUrl, language }` job payload — enough for any
+service implementing the protocol. A malformed `JobServicesByModelId` fails fast at Lambda init with an explicit
+error rather than silently skipping configurations.
+
+Example — two models rendered by two DynaMaker applications, a third by another service (written as one line in
+`.env.production`, without spaces or surrounding quotes):
+
+```json
+[
+  {"modelIds":["11111111-…"],"url":"https://qfs.dynamaker.com/jobs","apiKey":"…","applicationId":"AbCdEfGhIjK","task":"generate-pdf","environment":"production"},
+  {"modelIds":["22222222-…"],"url":"https://qfs.dynamaker.com/jobs","apiKey":"…","applicationId":"LmNoPqRsTuV","task":"generate-pdf","environment":"production"},
+  {"modelIds":["33333333-…"],"url":"https://your-render-service.example/jobs","apiKeyHeader":"x-api-key","apiKey":"…"}
+]
+```
 
 ## Deployment
 Deploy the application using `npm run deploy`.
 
-This command executes `sam deploy` with parameters from your `.env.production` file.
+This command executes `sam deploy` with parameters from your `.env.production` file, via
+`scripts/sam-with-env.sh`. That wrapper exists because SAM's `--parameter-overrides` shorthand truncates a value at
+its first comma once the value contains double quotes, which would reduce a `JobServicesByModelId` JSON array to the
+fragment `[{` and break the Lambda at init. The wrapper passes each value wrapped in the literal single quotes SAM
+needs, so write plain unquoted values in `.env.production`. A value must not itself contain a single quote — SAM
+cannot receive one, and the wrapper aborts instead of deploying a mangled value.
 
 ## Local Lambda Function Testing
 To test locally, first copy `.env.example` to `.env.local` and fill in your credentials.
@@ -75,11 +122,13 @@ To test locally, first copy `.env.example` to `.env.local` and fill in your cred
     3. Run `npm run invoke-local-callback`.
 
 ## AWS Lambda Endpoints
-- **QFS Task Trigger**: Triggers the specified DynaMaker job. The actual Lambda URL will be printed out in the terminal
-  once you deploy the application to the cloud. This is the URL you will use as the Callback URL for Elfsquad webhooks,
-  or as the `triggerDynamakerJobLambdaURL` variable in the second Elfsquad script `dialog.js` (see the `Elfsquad setup`
-  section above).
+- **QFS Task Trigger**: Looks up the job service for the affected configuration(s) and triggers a job on it. The
+  actual Lambda URL will be printed out in the terminal once you deploy the application to the cloud. This is the URL
+  you will use as the Callback URL for Elfsquad webhooks, or as the `triggerRenderJobLambdaURL` variable in the second
+  Elfsquad script `dialog.js` (see the `Elfsquad setup` section above).
     - Example: `https://abcde12345.execute-api.eu-central-1.amazonaws.com/Prod/qfs-task-trigger`
-- **QFS Callback**: This endpoint receives QFS job results and uploads the generated PDF documents to the Elfsquad
-  quotation.
+- **QFS Callback**: This endpoint receives the job result (the generated PDF, or a failure message) from whichever
+  job service handled it and uploads the PDF to the Elfsquad quotation. The same for every job service — it only
+  expects a POST with the PDF as the body plus `cid`/`qid` query parameters, or `?success=false` with a JSON
+  `message` on failure.
     - Example: `https://abcde12345.execute-api.eu-central-1.amazonaws.com/Prod/qfs-callback`
